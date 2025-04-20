@@ -1,4 +1,4 @@
-# aprschat
+# README
 
 This is my attempt at creating an aprs chat service. 
 This uses flask as the backend for the html front end 
