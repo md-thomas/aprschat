@@ -18,3 +18,8 @@ https://apps.magicbug.co.uk/passcode/
 that listens for messages being send and received on
 the aprs network. 
 
+Once the application is running you can open a web 
+page http://localhost:5000  or http://<your-ip-address:5000 
+
+The application runs on port 5000  
+
