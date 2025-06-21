@@ -12,7 +12,8 @@ logging.basicConfig(
 )
 
 class APRSClient:
-    def __init__(self, callsign, password, server='rotate.aprs2.net', port=14580):
+    # def __init__(self, callsign, password, server='rotate.aprs2.net', port=14580):
+    def __init__(self, callsign, password, server='noam.aprs2.net', port=14580):
         self.callsign = callsign
         self.password = password
         self.server = server
@@ -28,7 +29,16 @@ class APRSClient:
         self.socket.connect((self.server, self.port))
         login_message = f"user {self.callsign} pass {self.password} vers FlaskAPRSClient 1.0\r\n"
         self.socket.sendall(login_message.encode())
-        time.sleep(2)  # Wait for server response
+        time.sleep(1)  # Wait for server response
+        
+        # Customize this list with your desired callsigns
+        additional_callsigns = ["K0MDT", "NB9X", "W1AW"]
+        all_callsigns = [self.callsign] + additional_callsigns
+        callsigns_csv = ",".join(all_callsigns)
+
+        # Add message traffic for those callsigns + weather alerts
+        filter_command = f"# filter t/m p/{callsigns_csv} t/w\r\n"
+        self.socket.sendall(filter_command.encode())
 
     def send_message(self, to_callsign, message):
         if not self.socket:
@@ -70,6 +80,7 @@ class APRSClient:
                     while '\n' in buffer:
                         line, buffer = buffer.split('\n', 1)
                         line = line.strip()
+                        # print(line)
                         if f"::{self.callsign.upper()}" in line.upper():
                             msg = self.parse_message(line)
                             if msg:
