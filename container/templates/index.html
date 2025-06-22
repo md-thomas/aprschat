@@ -1,0 +1,48 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+<h1>APRS Webchat</h1>
+
+{% with messages = get_flashed_messages() %}
+    {% if messages %}
+        <div class="flash-messages">
+            <ul>
+                {% for message in messages %}
+                    <li>{{ message }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+{% endwith %}
+
+<div class="chat-box">
+    {% for entry in history %}
+        <div class="message {% if entry.direction == 'in' %}from-others{% else %}from-me{% endif %}">
+            <div class="text">{{ entry.msg }}</div>
+            <div class="time">
+                {% if entry.direction == 'in' %}
+                    From {{ entry.from }} — {{ entry.time }}
+                {% else %}
+                    To {{ entry.to }} — {{ entry.time }}
+                {% endif %}
+            </div>
+        </div>
+    {% else %}
+        <p>No messages yet.</p>
+    {% endfor %}
+</div>
+
+
+<div class="clear-chat-container">
+    <button id="clear-chat-btn">Clear Chat</button>
+</div>
+
+<form method="post">
+    <div class="form-group">
+        <input type="text" name="to_callsign" placeholder="Recipient Callsign" required>
+        <input type="text" name="message" placeholder="Your message" required>
+        <button type="submit">Send</button>
+    </div>
+</form>
+{% endblock %}
+

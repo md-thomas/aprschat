@@ -1,21 +1,30 @@
 These are notes for running the app in a pod or container 
 
+# Build
+1. Install podman 
+	sudo apt install podman
+2. create Dockerfile
+3. create requirements.txt 
+4. create app.py
 
-1. create Dockerfile
-
-2. create requirements.txt 
-
-3. create app.py
-
-
-
-podman rm -f flask-app
-podman build -t flask-app .
-podman run -p 5000:5000 --name flask-app flask-app
+# example podman commands
+podman rm -f aprschat-app
+podman build -t aprschat-app .
+podman run -p 5000:5000 --name aprschat-app aprschat-app
 podman ps 
 podman stop <containerid> 
-podman start flask-app
-podman stop flask-app
+podman start aprschat-app
+podman stop aprschat-app
 
+# Install
+1. Update the aprschat.config file with your info
+
+# Running
+podman rm -f aprschat-app
+podman build -t aprschat-app .
+podman run -p 5000:5000 --name aprschat-app aprschat-app
+https://localhost:5000
+podman stop aprschat-app
+podman start aprschat-app
 
 
