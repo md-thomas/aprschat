@@ -1,0 +1,15 @@
+2025-07-18 20:00:50,823 - INFO - Sent message to W5HIM: Hello Eric, this is an aprs test message.
+2025-07-18 20:01:28,896 - INFO - Received message from W5HIM-5: Ha. My APRS.fi app on my iPhone picked this up first. (ID: ADC7A)
+2025-07-18 20:01:28,896 - INFO - Received message from W5HIM-5: Ha. My APRS.fi app on my iPhone picked this up first. (ID: ADC7A)
+2025-07-18 20:01:28,896 - INFO - Sent acknowledgment for message ID: ADC7A
+2025-07-18 20:01:28,896 - INFO - Sent acknowledgment for message ID: ADC7A
+2025-07-18 20:01:28,897 - INFO - Sent message to K0MDT: ackADC7A
+2025-07-18 20:01:28,897 - INFO - Sent message to K0MDT: ackADC7A
+2025-07-18 20:01:50,713 - INFO - Sent message to W5HIM : Nice!
+2025-07-18 20:03:14,878 - INFO - Received message from W5HIM-5: Was this to W5HIM directly or one of the SSIDs? (ID: A2930)
+2025-07-18 20:03:14,878 - INFO - Received message from W5HIM-5: Was this to W5HIM directly or one of the SSIDs? (ID: A2930)
+2025-07-18 20:03:14,878 - INFO - Sent acknowledgment for message ID: A2930
+2025-07-18 20:03:14,878 - INFO - Sent acknowledgment for message ID: A2930
+2025-07-18 20:03:14,878 - INFO - Sent message to K0MDT: ackA2930
+2025-07-18 20:03:14,878 - INFO - Sent message to K0MDT: ackA2930
+2025-07-18 20:30:41,796 - INFO - Sent message to K1CHC: Hey Chuck, you get APRS up there in Ipswich?
