@@ -10,7 +10,7 @@ These are notes for running the app in a pod or container
 # example podman commands
 podman rm -f aprschat-app
 podman build -t aprschat-app .
-podman run -p 5000:5000 --name aprschat-app aprschat-app
+podman run -p 5001:5001 --name aprschat-app aprschat-app
 podman ps 
 podman stop <containerid> 
 podman start aprschat-app
@@ -22,9 +22,9 @@ podman stop aprschat-app
 # Running
 podman rm -f aprschat-app
 podman build -t aprschat-app .
-podman run -p 5000:5000 --name aprschat-app aprschat-app
-https://localhost:5000
+podman run -p 5001:5001 --name aprschat-app aprschat-app
+http://localhost:5001
 podman stop aprschat-app
 podman start aprschat-app
-
+http://localhost:5001
 

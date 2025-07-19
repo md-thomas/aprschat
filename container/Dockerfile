@@ -11,6 +11,6 @@ COPY aprs.py .
 COPY templates/ templates/ 
 COPY aprschat.config .
 
-EXPOSE 5000 
+EXPOSE 5001 
 
 CMD ["python", "app.py"]
