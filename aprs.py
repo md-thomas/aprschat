@@ -3,6 +3,9 @@ import time
 import threading
 import uuid
 import logging
+import random
+import string
+
 
 # Set up logging configuration
 logging.basicConfig(
@@ -22,6 +25,11 @@ class APRSClient:
         self.running = False
         self.received_messages = []
         self.processed_message_ids = set()
+        self.counter = 0
+
+    def get_next_id(self):
+        self.counter = (self.counter + 1) % 100000 
+        return f"{self.counter:03}"
 
     def connect(self):
         """Establishes a connection to the APRS-IS server."""
@@ -39,7 +47,7 @@ class APRSClient:
         # Add message traffic for those callsigns + weather alerts
         filter_command = f"# filter t/m p/{callsigns_csv} t/w\r\n"
         self.socket.sendall(filter_command.encode())
-
+    
     def send_message(self, to_callsign, message):
         if not self.socket:
             raise ConnectionError("Not connected to APRS-IS server.")
@@ -50,8 +58,9 @@ class APRSClient:
         # if len(message) > 67:
         #     print(f"[WARNING] Message too long. Trimming to 67 characters.")
         #     message = message[:67]
-            
-        aprs_packet = f"{self.callsign}>APRS,TCPIP*::{to_callsign_padded}:{message}\r\n"
+        
+        msg_num = self.get_next_id()
+        aprs_packet = f"{self.callsign}>APRS,TCPIP*::{to_callsign_padded}:{message}{{{msg_num}\r\n"
         
         # log messages being sent
         logging.info(f"Sent message to {to_callsign}: {message}")
@@ -90,7 +99,7 @@ class APRSClient:
                                     self.processed_message_ids.add(msgid)
                                     logging.info(f"Received message from {msg['from']}: {msg['msg']} (ID: {msgid})")
                                     print(f"[DEDUP] Stored new message: {msg}")
-                                    self.send_ack(msgid)
+                                    # self.send_ack(msgid)
                                 else:
                                     print(f"[DEDUP] Skipped duplicate message with ID: {msgid}")
                 except Exception as e:
