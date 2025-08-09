@@ -4,6 +4,8 @@ from datetime import datetime
 import logging
 import configparser
 
+import version
+
 app = Flask(__name__)
 app.secret_key = 'the_secret_key'
 
@@ -23,6 +25,8 @@ aprs_client.listen_for_messages()
 
 # In-memory history (clears when the app restarts)
 message_history = []
+
+version = version.__version__
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -50,7 +54,9 @@ def index():
                 'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'direction': 'out'
             })
-        return redirect(url_for('index'))
+        return redirect(url_for('index', to_callsign=to_callsign))
+    
+    to_callsign = request.args.get('to_callsign','')
 
     # Include both sent and received messages in the view
     chat_history = message_history + [
@@ -59,7 +65,7 @@ def index():
     ]
 
     # Sort by time if needed, for now just show in order
-    return render_template('index.html', history=chat_history)
+    return render_template('index.html', history=chat_history, version=version, callsign=CALLSIGN, to_callsign=to_callsign)
 
 @app.route('/get_messages')
 def get_messages():

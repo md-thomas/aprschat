@@ -2,7 +2,9 @@
 
 {% block content %}
 <h1>APRS Webchat</h1>
-
+<p style="text-align: center; color: #555; font-size: 1.1em; margin-top: -10px;">
+    {{ callsign }}
+</p>
 {% with messages = get_flashed_messages() %}
     {% if messages %}
         <div class="flash-messages">
@@ -39,7 +41,7 @@
 
 <form method="post">
     <div class="form-group">
-        <input type="text" name="to_callsign" placeholder="Recipient Callsign" required>
+        <input type="text" name="to_callsign" placeholder="Recipient Callsign", value="{{ to_callsign }}" required>
         <input type="text" name="message" placeholder="Your message" required>
         <button type="submit">Send</button>
     </div>
