@@ -1,5 +1,6 @@
 import argparse
 import configparser
+import time
 from datetime import datetime
 from urllib.parse import urlencode
 
@@ -45,6 +46,20 @@ def get_flashed_messages(request: Request):
     return request.session.pop('_flashes', [])
 
 
+def split_message(message: str, limit: int = 67):
+    """Split a message into APRS-sized chunks, each prefixed with a (part/total) marker."""
+    if len(message) <= limit:
+        return [message]
+
+    total_estimate = -(-len(message) // limit)  # ceil division
+    marker_len = len(f"({total_estimate}/{total_estimate}) ")
+    body_size = max(limit - marker_len, 1)
+
+    bodies = [message[i:i + body_size] for i in range(0, len(message), body_size)]
+    total = len(bodies)
+    return [f"({i}/{total}) {body}" for i, body in enumerate(bodies, start=1)]
+
+
 @app.get('/')
 async def index(request: Request, to_callsign: str = ''):
     # Include both sent and received messages in the view
@@ -68,25 +83,30 @@ async def index(request: Request, to_callsign: str = ''):
 
 @app.post('/')
 async def send_message(request: Request, to_callsign: str = Form(...), message: str = Form(...)):
-    if len(message) > 67:
-        flash(request, 'Message was too long and has been truncated to 67 characters...')
-        print('[WARNING] Message too long. Trimming to 67 characters.')
-        message = message[:67]
-    try:
-        aprs_client.send_message(to_callsign, message)
-        message_history.append({
-            'to': to_callsign.upper(),
-            'msg': message,
-            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'direction': 'out'
-        })
-    except Exception as e:
-        message_history.append({
-            'to': to_callsign.upper(),
-            'msg': f"[ERROR] {str(e)}",
-            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'direction': 'out'
-        })
+    chunks = split_message(message, 67)
+    if len(chunks) > 1:
+        flash(request, f"Message was too long and has been split into {len(chunks)} messages...")
+        print(f"[WARNING] Message too long. Splitting into {len(chunks)} messages.")
+
+    for chunk in chunks:
+        try:
+            aprs_client.send_message(to_callsign, chunk)
+            message_history.append({
+                'to': to_callsign.upper(),
+                'msg': chunk,
+                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'direction': 'out'
+            })
+        except Exception as e:
+            message_history.append({
+                'to': to_callsign.upper(),
+                'msg': f"[ERROR] {str(e)}",
+                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'direction': 'out'
+            })
+            break
+        if len(chunks) > 1:
+            time.sleep(2)  # avoid flooding APRS-IS with rapid-fire packets
 
     query = urlencode({'to_callsign': to_callsign})
     return RedirectResponse(url=f"/?{query}", status_code=303)

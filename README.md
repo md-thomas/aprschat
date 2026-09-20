@@ -30,7 +30,7 @@ different port, e.g. ./start.sh -p 8080
 2. [x] Add users callsign to page somewhere
 3. [x] Add version to page somewhere
 4. [x] Add warning if more than 67 characters used in message
-5. maybe split messages larger than 67 characters into multiple messages 
+5. [x] maybe split messages larger than 67 characters into multiple messages 
 6. create a group of callsigns to send messages to
 7. add a map to show a location for users
 8. add a send position button 
