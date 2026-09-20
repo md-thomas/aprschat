@@ -38,13 +38,48 @@ h1 {
 }
 
 .content-card {
-    max-width: 800px;
-    margin: 0 auto;
     background: var(--card-obsidian);
     padding: 2.5rem;
     border-radius: 24px;
     border: 1px solid rgba(255, 255, 255, 0.05);
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.card {
+    background-color: var(--card-obsidian) !important;
+    border-color: rgba(255, 255, 255, 0.05) !important;
+    border-radius: 16px;
+}
+
+.card-header {
+    border-color: rgba(255, 255, 255, 0.05) !important;
+    border-top-left-radius: 16px !important;
+    border-top-right-radius: 16px !important;
+}
+
+.list-group-item {
+    background-color: var(--card-obsidian) !important;
+    border-color: rgba(255, 255, 255, 0.05) !important;
+    color: var(--text-ghost) !important;
+}
+
+.callsign-item {
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.callsign-item:hover {
+    background-color: rgba(34, 211, 238, 0.08) !important;
+}
+
+.callsign-item.selected {
+    background-color: rgba(34, 211, 238, 0.15) !important;
+    border-color: rgba(34, 211, 238, 0.3) !important;
+    color: var(--accent-cyan) !important;
+}
+
+.badge {
+    color: #fff !important;
 }
 
 .chat-box {

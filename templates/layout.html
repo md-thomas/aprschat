@@ -19,8 +19,36 @@
 </nav>
 
 <main class="container my-5">
-    <div class="content-card">
-        {% block content %}{% endblock %}
+    <div class="row g-4">
+        <aside class="col-md-3">
+            <div class="card mb-3">
+                <div class="card-header bg-primary text-white">Callsigns</div>
+                <ul class="list-group list-group-flush" id="callsign-list">
+                    {% for cs in callsigns %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span class="callsign-item" data-callsign="{{ cs }}" role="button">{{ cs }}</span>
+                        <form method="post" action="/callsigns/remove" class="ms-2">
+                            <input type="hidden" name="callsign" value="{{ cs }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Remove {{ cs }}">&times;</button>
+                        </form>
+                    </li>
+                    {% else %}
+                    <li class="list-group-item text-muted">No callsigns yet</li>
+                    {% endfor %}
+                </ul>
+                <div class="card-body">
+                    <form method="post" action="/callsigns/add" class="d-flex gap-2">
+                        <input type="text" name="callsign" class="form-control form-control-sm" placeholder="Add callsign" required>
+                        <button type="submit" class="btn btn-sm btn-primary">Add</button>
+                    </form>
+                </div>
+            </div>
+        </aside>
+        <div class="col-md-9">
+            <div class="content-card">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
     </div>
 </main>
 
@@ -92,6 +120,23 @@
                 });
             }, 4000);
         }
+
+        $('.callsign-item').on('click', function() {
+            const callsign = $(this).data('callsign').toString();
+            const input = $('#to_callsign');
+            let current = input.val().split(',').map(s => s.trim()).filter(Boolean);
+            const idx = current.indexOf(callsign);
+
+            if (idx === -1) {
+                current.push(callsign);
+                $(this).addClass('selected');
+            } else {
+                current.splice(idx, 1);
+                $(this).removeClass('selected');
+            }
+
+            input.val(current.join(', '));
+        });
     });
 </script>
 

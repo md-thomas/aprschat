@@ -1,7 +1,9 @@
 import argparse
 import configparser
+import json
 import time
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlencode
 
 import uvicorn
@@ -25,6 +27,24 @@ config = configparser.ConfigParser()
 config.read('aprschat.config')
 CALLSIGN = config['settings']['callsign']
 PASSCODE = config['settings']['passcode']
+
+# Saved callsigns shown in the sidebar, editable from the web page
+CALLSIGNS_FILE = Path('callsigns.json')
+
+
+def load_callsigns():
+    if CALLSIGNS_FILE.exists():
+        with open(CALLSIGNS_FILE) as f:
+            return json.load(f)
+    return []
+
+
+def save_callsigns(callsigns):
+    with open(CALLSIGNS_FILE, 'w') as f:
+        json.dump(callsigns, f, indent=2)
+
+
+CALLSIGNS = load_callsigns()
 
 aprs_client = APRSClient(CALLSIGN, PASSCODE)
 aprs_client.connect()
@@ -76,6 +96,7 @@ async def index(request: Request, to_callsign: str = ''):
             'version': VERSION,
             'callsign': CALLSIGN,
             'to_callsign': to_callsign,
+            'callsigns': CALLSIGNS,
             'messages': get_flashed_messages(request),
         },
     )
@@ -83,30 +104,37 @@ async def index(request: Request, to_callsign: str = ''):
 
 @app.post('/')
 async def send_message(request: Request, to_callsign: str = Form(...), message: str = Form(...)):
+    recipients = [c.strip().upper() for c in to_callsign.split(',') if c.strip()]
     chunks = split_message(message, 67)
+
     if len(chunks) > 1:
         flash(request, f"Message was too long and has been split into {len(chunks)} messages...")
         print(f"[WARNING] Message too long. Splitting into {len(chunks)} messages.")
+    if len(recipients) > 1:
+        flash(request, f"Sending to {len(recipients)} recipients: {', '.join(recipients)}")
 
-    for chunk in chunks:
-        try:
-            aprs_client.send_message(to_callsign, chunk)
-            message_history.append({
-                'to': to_callsign.upper(),
-                'msg': chunk,
-                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'direction': 'out'
-            })
-        except Exception as e:
-            message_history.append({
-                'to': to_callsign.upper(),
-                'msg': f"[ERROR] {str(e)}",
-                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'direction': 'out'
-            })
-            break
-        if len(chunks) > 1:
-            time.sleep(2)  # avoid flooding APRS-IS with rapid-fire packets
+    total_sends = len(recipients) * len(chunks)
+    sent = 0
+    for recipient in recipients:
+        for chunk in chunks:
+            sent += 1
+            try:
+                aprs_client.send_message(recipient, chunk)
+                message_history.append({
+                    'to': recipient,
+                    'msg': chunk,
+                    'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'direction': 'out'
+                })
+            except Exception as e:
+                message_history.append({
+                    'to': recipient,
+                    'msg': f"[ERROR] {str(e)}",
+                    'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'direction': 'out'
+                })
+            if total_sends > 1 and sent < total_sends:
+                time.sleep(2)  # avoid flooding APRS-IS with rapid-fire packets
 
     query = urlencode({'to_callsign': to_callsign})
     return RedirectResponse(url=f"/?{query}", status_code=303)
@@ -130,6 +158,25 @@ async def get_messages():
     chat_history.sort(key=lambda x: datetime.strptime(x['time'], '%Y-%m-%d %H:%M:%S'))
 
     return chat_history
+
+
+@app.post('/callsigns/add')
+async def add_callsign(callsign: str = Form(...)):
+    cs = callsign.strip().upper()
+    if cs and cs not in CALLSIGNS:
+        CALLSIGNS.append(cs)
+        CALLSIGNS.sort()
+        save_callsigns(CALLSIGNS)
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.post('/callsigns/remove')
+async def remove_callsign(callsign: str = Form(...)):
+    cs = callsign.strip().upper()
+    if cs in CALLSIGNS:
+        CALLSIGNS.remove(cs)
+        save_callsigns(CALLSIGNS)
+    return RedirectResponse(url='/', status_code=303)
 
 
 @app.post('/clear_messages')
