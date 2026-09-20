@@ -1,17 +1,21 @@
-from flask import Flask, render_template, request, redirect, flash, url_for, jsonify
-from aprs import APRSClient
-from datetime import datetime
-import logging
+import argparse
 import configparser
+from datetime import datetime
+from urllib.parse import urlencode
 
+import uvicorn
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+from aprs import APRSClient
 import version
 
-app = Flask(__name__)
-app.secret_key = 'the_secret_key'
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key='the_secret_key')
 
-# Suppress the default request logging
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR) 
+templates = Jinja2Templates(directory='templates')
 
 # Replace with your actual callsign and password
 config = configparser.ConfigParser()
@@ -26,57 +30,76 @@ aprs_client.listen_for_messages()
 # In-memory history (clears when the app restarts)
 message_history = []
 
-version = version.__version__
+VERSION = version.__version__
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        to_callsign = request.form['to_callsign']
-        message = request.form['message']
-        if len(message) > 61:
-            flash(f"Message was too long and has been truncated to 61 characters...")
-            print(f"[WARNING] Message too long. Trimming to 61 characters.")
-            message = message[:61]
-        try:
-            aprs_client.send_message(to_callsign, message)
-            message_history.append({
-                'to': to_callsign.upper(),
-                'msg': message,
-                # 'msgid': msgid,
-                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'direction': 'out'
-            })
-        except Exception as e:
-            message_history.append({
-                'to': to_callsign.upper(),
-                'msg': f"[ERROR] {str(e)}",
-                # 'msgid': msgid,
-                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'direction': 'out'
-            })
-        return redirect(url_for('index', to_callsign=to_callsign))
-    
-    to_callsign = request.args.get('to_callsign','')
 
+def flash(request: Request, message: str):
+    flashes = request.session.get('_flashes', [])
+    flashes.append(message)
+    request.session['_flashes'] = flashes
+
+
+def get_flashed_messages(request: Request):
+    return request.session.pop('_flashes', [])
+
+
+@app.get('/')
+async def index(request: Request, to_callsign: str = ''):
     # Include both sent and received messages in the view
     chat_history = message_history + [
         {'to': aprs_client.callsign, 'msg': msg['msg'], 'time': msg['time'], 'direction': 'in'}
         for msg in aprs_client.received_messages
     ]
 
-    # Sort by time if needed, for now just show in order
-    return render_template('index.html', history=chat_history, version=version, callsign=CALLSIGN, to_callsign=to_callsign)
+    return templates.TemplateResponse(
+        request,
+        'index.html',
+        {
+            'history': chat_history,
+            'version': VERSION,
+            'callsign': CALLSIGN,
+            'to_callsign': to_callsign,
+            'messages': get_flashed_messages(request),
+        },
+    )
 
-@app.route('/get_messages')
-def get_messages():
+
+@app.post('/')
+async def send_message(request: Request, to_callsign: str = Form(...), message: str = Form(...)):
+    if len(message) > 67:
+        flash(request, 'Message was too long and has been truncated to 67 characters...')
+        print('[WARNING] Message too long. Trimming to 67 characters.')
+        message = message[:67]
+    try:
+        aprs_client.send_message(to_callsign, message)
+        message_history.append({
+            'to': to_callsign.upper(),
+            'msg': message,
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'direction': 'out'
+        })
+    except Exception as e:
+        message_history.append({
+            'to': to_callsign.upper(),
+            'msg': f"[ERROR] {str(e)}",
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'direction': 'out'
+        })
+
+    query = urlencode({'to_callsign': to_callsign})
+    return RedirectResponse(url=f"/?{query}", status_code=303)
+
+
+@app.get('/get_messages')
+async def get_messages():
     # Get both sent and received messages
     chat_history = message_history + [
         {
             'from': msg.get('from', 'Unknown'),
-            'to': aprs_client.callsign, 
+            'to': aprs_client.callsign,
             'msg': msg['msg'],
             'msgid': msg['msgid'],
-            'time': msg['time'], 
+            'time': msg['time'],
             'direction': 'in'
         }
         for msg in aprs_client.received_messages
@@ -84,18 +107,23 @@ def get_messages():
 
     chat_history.sort(key=lambda x: datetime.strptime(x['time'], '%Y-%m-%d %H:%M:%S'))
 
-    # print("[DEBUG] Received Messages:", chat_history)
-    # Return the messages as JSON
-    return jsonify(chat_history)
+    return chat_history
 
-@app.route('/clear_messages', methods=['POST'])
-def clear_messages():
+
+@app.post('/clear_messages')
+async def clear_messages():
     # Clear the message buffer
-    global message_history
     message_history.clear()
     aprs_client.received_messages.clear()
-    # Return a success message
-    return jsonify({"status": "success", "message": "Message buffer cleared."})
+    return {"status": "success", "message": "Message buffer cleared."}
+
+
+def main():
+    parser = argparse.ArgumentParser(description='APRS Webchat server')
+    parser.add_argument('-p', '--port', type=int, default=5001, help='Port to listen on (default: 5001)')
+    args = parser.parse_args()
+    uvicorn.run(app, host='0.0.0.0', port=args.port, access_log=False)
+
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    main()

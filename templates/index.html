@@ -5,17 +5,15 @@
 <p style="text-align: center; color: #555; font-size: 1.1em; margin-top: -10px;">
     {{ callsign }}
 </p>
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        <div class="flash-messages">
-            <ul>
-                {% for message in messages %}
-                    <li>{{ message }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-    {% endif %}
-{% endwith %}
+{% if messages %}
+    <div class="flash-messages">
+        <ul>
+            {% for message in messages %}
+                <li>{{ message }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+{% endif %}
 
 <div class="chat-box">
     {% for entry in history %}

@@ -1,6 +1,6 @@
 # README
 This is my attempt at creating an aprs chat service. 
-This uses flask as the backend for the html front end 
+This uses FastAPI as the backend for the html front end 
 
 # INSTALL
 Requirements: python3 and some python modules
@@ -15,14 +15,15 @@ This url can be used to get your aprs passcode
 https://apps.magicbug.co.uk/passcode/
 
 # STARTUP
-./start.sh will kick off the the flask backend server
+./start.sh will kick off the FastAPI backend server (via uvicorn)
 that listens for messages being send and received on
 the aprs network. 
 
 Once the application is running you can open a web 
 page http://localhost:5001  or http://<your-ip-address:5001
 
-The application runs on port 5000  
+The application runs on port 5001 by default. Use -p to pick a
+different port, e.g. ./start.sh -p 8080
 
 # Todo 
 1. Keep last used callsign 
@@ -33,6 +34,3 @@ The application runs on port 5000
 6. create a group of callsigns to send messages to
 7. add a map to show a location for users
 8. add a send position button 
-
-
-
