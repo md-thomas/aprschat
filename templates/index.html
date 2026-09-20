@@ -2,9 +2,8 @@
 
 {% block content %}
 <h1>APRS Webchat</h1>
-<p style="text-align: center; color: #555; font-size: 1.1em; margin-top: -10px;">
-    {{ callsign }}
-</p>
+<p class="text-muted text-center mb-4">{{ callsign }}</p>
+
 {% if messages %}
     <div class="flash-messages">
         <ul>
@@ -28,21 +27,19 @@
             </div>
         </div>
     {% else %}
-        <p>No messages yet.</p>
+        <p class="text-muted text-center mb-0">No messages yet.</p>
     {% endfor %}
 </div>
 
-
 <div class="clear-chat-container">
-    <button id="clear-chat-btn">Clear Chat</button>
+    <button id="clear-chat-btn" class="btn btn-outline-light btn-sm">Clear Chat</button>
 </div>
 
 <form method="post">
-    <div class="form-group">
-        <input type="text" name="to_callsign" placeholder="Recipient Callsign", value="{{ to_callsign }}" required>
-        <input type="text" name="message" placeholder="Your message" required>
-        <button type="submit">Send</button>
+    <div class="search-wrapper">
+        <input type="text" class="form-control" name="to_callsign" placeholder="Recipient Callsign" value="{{ to_callsign }}" required>
+        <input type="text" class="form-control" name="message" placeholder="Your message" required>
+        <button type="submit" class="btn btn-primary">Send</button>
     </div>
 </form>
 {% endblock %}
-

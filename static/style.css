@@ -1,0 +1,192 @@
+/* static/style.css — Obsidian theme, matching CallingCQ.com */
+:root {
+    --bg-obsidian: #0f172a;
+    --card-obsidian: #1e293b;
+    --accent-cyan: #22d3ee;
+    --text-ghost: #f8fafc;
+    --text-muted: #94a3b8;
+}
+
+body, html {
+    background-color: var(--bg-obsidian);
+    min-height: 100%;
+    background-image:
+        radial-gradient(at 0% 0%, rgba(34, 211, 238, 0.05) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.05) 0px, transparent 50%);
+    color: var(--text-ghost);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.navbar {
+    background: var(--card-obsidian) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.navbar-brand {
+    color: var(--accent-cyan) !important;
+    font-weight: 800;
+}
+
+.navbar-text {
+    color: var(--text-muted) !important;
+}
+
+h1 {
+    color: var(--accent-cyan);
+    font-weight: 800;
+    text-align: center;
+}
+
+.content-card {
+    max-width: 600px;
+    margin: 0 auto;
+    background: var(--card-obsidian);
+    padding: 2.5rem;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.chat-box {
+    height: 320px;
+    overflow-y: auto;
+    background: rgba(15, 23, 42, 0.5);
+    padding: 15px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 1.5rem;
+}
+
+.message {
+    max-width: 75%;
+    padding: 10px 15px;
+    margin: 10px 0;
+    border-radius: 16px;
+    clear: both;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    font-size: 0.95rem;
+}
+
+.message::after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+.from-me {
+    background: rgba(34, 211, 238, 0.12);
+    border: 1px solid rgba(34, 211, 238, 0.25);
+    float: right;
+    text-align: right;
+    color: var(--text-ghost);
+}
+
+.from-others {
+    background: var(--card-obsidian);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    float: left;
+    text-align: left;
+    color: var(--text-ghost);
+}
+
+.time {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    margin-top: 5px;
+}
+
+.flash-messages {
+    list-style: none;
+    padding: 12px 16px;
+    margin-bottom: 15px;
+    border: 1px solid rgba(34, 211, 238, 0.25);
+    background: rgba(34, 211, 238, 0.08);
+    color: var(--accent-cyan);
+    border-radius: 12px;
+    opacity: 1;
+    overflow: hidden;
+    transition: opacity 0.5s ease, max-height 0.5s ease, padding 0.5s ease;
+}
+
+.flash-messages ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.flash-messages.hide {
+    opacity: 0;
+    max-height: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.clear-chat-container {
+    text-align: right;
+    margin-bottom: 1rem;
+}
+
+.search-wrapper {
+    display: flex;
+    gap: 12px;
+}
+
+@media (max-width: 480px) {
+    .search-wrapper {
+        flex-direction: column;
+    }
+    .content-card {
+        padding: 1.5rem;
+    }
+}
+
+.form-control {
+    background: var(--bg-obsidian) !important;
+    border: 1px solid #334155;
+    color: var(--text-ghost) !important;
+    border-radius: 16px !important;
+    padding: 12px 20px;
+}
+
+.form-control::placeholder {
+    color: var(--text-muted);
+    opacity: 0.8;
+}
+
+.form-control:focus {
+    background: var(--card-obsidian) !important;
+    border-color: var(--accent-cyan);
+    color: #fff !important;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2);
+    outline: none;
+}
+
+.btn-primary {
+    background-color: var(--accent-cyan);
+    color: #083344;
+    border: none;
+    font-weight: 700;
+    border-radius: 16px !important;
+    padding: 0 1.75rem;
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    background-color: #67e8f9;
+    color: #083344;
+    transform: translateY(-2px);
+    box-shadow: 0 0 15px rgba(34, 211, 238, 0.4);
+}
+
+.btn-outline-light:hover {
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.15);
+}
+
+footer {
+    width: 100%;
+    margin-top: 20px;
+    padding: 20px 0;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}

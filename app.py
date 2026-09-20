@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 import uvicorn
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -14,6 +15,7 @@ import version
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key='the_secret_key')
+app.mount('/static', StaticFiles(directory='static'), name='static')
 
 templates = Jinja2Templates(directory='templates')
 
