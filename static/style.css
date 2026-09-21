@@ -37,9 +37,44 @@ h1 {
     text-align: center;
 }
 
+.panel-heading-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 3px;
+    padding-bottom: 5px;
+}
+
+.panel-heading {
+    text-align: left;
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.panel-heading small {
+    font-weight: 400;
+    margin-left: 8px;
+}
+
+.panel-toggle-btn {
+    padding: 2px 10px;
+    line-height: 1;
+}
+
+.panel-toggle-btn .collapse-icon {
+    display: inline-block;
+    transition: transform 0.2s ease;
+}
+
+.panel-toggle-btn.collapsed .collapse-icon {
+    transform: rotate(-90deg);
+}
+
 .content-card {
     background: var(--card-obsidian);
-    padding: 2.5rem;
+    padding: 1rem 1.5rem 1.5rem;
     border-radius: 24px;
     border: 1px solid rgba(255, 255, 255, 0.05);
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
@@ -171,7 +206,7 @@ h1 {
         flex-direction: column;
     }
     .content-card {
-        padding: 1.5rem;
+        padding: 1rem;
     }
 }
 
@@ -231,7 +266,7 @@ h2 {
 }
 
 #map {
-    height: 500px;
+    height: 650px;
     min-height: 200px;
     width: 100%;
     border-radius: 16px;
@@ -251,4 +286,48 @@ h2 {
 .leaflet-popup-tip {
     background: var(--card-obsidian) !important;
     color: var(--text-ghost) !important;
+}
+
+.leaflet-tooltip {
+    background: var(--card-obsidian) !important;
+    color: var(--text-ghost) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: none !important;
+}
+
+.nav-tabs {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.nav-tabs .nav-link {
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+}
+
+.nav-tabs .nav-link:hover {
+    color: var(--accent-cyan);
+    border-color: transparent;
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--accent-cyan);
+    background: transparent;
+    border-color: transparent;
+    border-bottom: 2px solid var(--accent-cyan);
+}
+
+.positions-box {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 15px;
+    height: 500px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: var(--text-ghost);
+    white-space: pre-wrap;
+    margin: 0;
 }
