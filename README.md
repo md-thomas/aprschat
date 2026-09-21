@@ -32,5 +32,5 @@ different port, e.g. ./start.sh -p 8080
 4. [x] Add warning if more than 67 characters used in message
 5. [x] maybe split messages larger than 67 characters into multiple messages 
 6. [x] create a group of callsigns to send messages to
-7. add a map to show a location for users
-8. add a send position button 
+7. [x] add a map to show a location for users
+8. [x] add a send position button 

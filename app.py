@@ -35,7 +35,7 @@ CALLSIGNS_FILE = Path('callsigns.json')
 def load_callsigns():
     if CALLSIGNS_FILE.exists():
         with open(CALLSIGNS_FILE) as f:
-            return json.load(f)
+            return sorted(json.load(f))
     return []
 
 
@@ -47,7 +47,7 @@ def save_callsigns(callsigns):
 CALLSIGNS = load_callsigns()
 
 aprs_client = APRSClient(CALLSIGN, PASSCODE)
-aprs_client.connect()
+aprs_client.connect(CALLSIGNS)
 aprs_client.listen_for_messages()
 
 # In-memory history (clears when the app restarts)
@@ -167,6 +167,7 @@ async def add_callsign(callsign: str = Form(...)):
         CALLSIGNS.append(cs)
         CALLSIGNS.sort()
         save_callsigns(CALLSIGNS)
+        aprs_client.set_filter(CALLSIGNS)
     return RedirectResponse(url='/', status_code=303)
 
 
@@ -176,6 +177,26 @@ async def remove_callsign(callsign: str = Form(...)):
     if cs in CALLSIGNS:
         CALLSIGNS.remove(cs)
         save_callsigns(CALLSIGNS)
+        aprs_client.set_filter(CALLSIGNS)
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.get('/get_positions')
+async def get_positions():
+    return list(aprs_client.positions.values())
+
+
+@app.post('/send_position')
+async def send_position(request: Request, lat: str = Form(...), lon: str = Form(...)):
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+        aprs_client.send_position(lat_f, lon_f)
+        flash(request, f"Position sent: {lat_f}, {lon_f}")
+    except ValueError:
+        flash(request, "Invalid latitude/longitude.")
+    except Exception as e:
+        flash(request, f"Failed to send position: {e}")
     return RedirectResponse(url='/', status_code=303)
 
 
