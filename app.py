@@ -14,6 +14,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from aprs import APRSClient
+from bluetooth_tnc import BluetoothTNCClient, list_paired_devices
+from serial_tnc import SerialTNCClient, list_serial_ports
 import version
 
 app = FastAPI()
@@ -27,6 +29,20 @@ config = configparser.ConfigParser()
 config.read('aprschat.config')
 CALLSIGN = config['settings']['callsign']
 PASSCODE = config['settings']['passcode']
+
+# Bluetooth KISS TNC (e.g. Mobilinkd TNC3/TNC4) and USB KISS TNC settings.
+# These are only starting defaults -- the Connection panel lets the user
+# pick a live device instead, which then takes precedence (see
+# load_connection_state() below), so a stale/missing config entry never
+# blocks using whatever's actually plugged in or paired right now.
+CONFIG_BT_ADDRESS = config.get('bluetooth', 'address', fallback='').strip()
+_bt_channel = config.get('bluetooth', 'channel', fallback='').strip()
+BT_CHANNEL = int(_bt_channel) if _bt_channel else None
+
+CONFIG_USB_PORT = config.get('usb', 'port', fallback='').strip()
+USB_BAUDRATE = int(config.get('usb', 'baudrate', fallback='9600').strip() or 9600)
+
+DIGIPATH = config.get('rf', 'digipath', fallback='WIDE1-1,WIDE2-1').split(',')
 
 # Saved callsigns shown in the sidebar, editable from the web page
 CALLSIGNS_FILE = Path('callsigns.json')
@@ -46,9 +62,83 @@ def save_callsigns(callsigns):
 
 CALLSIGNS = load_callsigns()
 
+# Selected transport + selected device for the Connection panel, all
+# three ('network'/APRS-IS, 'bluetooth', 'usb') fully wired up. The
+# device picked from the panel (persisted here) takes precedence over
+# aprschat.config's address/port on the next startup, since it reflects
+# whatever the user last actually chose.
+CONNECTION_MODES = ('network', 'bluetooth', 'usb')
+CONNECTION_FILE = Path('connection.json')
+
+
+def load_connection_state():
+    data = {}
+    if CONNECTION_FILE.exists():
+        with open(CONNECTION_FILE) as f:
+            data = json.load(f)
+    mode = data.get('mode', 'network')
+    return {
+        'mode': mode if mode in CONNECTION_MODES else 'network',
+        'bluetooth_address': data.get('bluetooth_address', ''),
+        'usb_port': data.get('usb_port', ''),
+    }
+
+
+def save_connection_state():
+    with open(CONNECTION_FILE, 'w') as f:
+        json.dump({
+            'mode': CONNECTION_MODE,
+            'bluetooth_address': bt_client.address,
+            'usb_port': usb_client.port,
+        }, f, indent=2)
+
+
+_state = load_connection_state()
+CONNECTION_MODE = _state['mode']
+BT_ADDRESS = _state['bluetooth_address'] or CONFIG_BT_ADDRESS
+USB_PORT = _state['usb_port'] or CONFIG_USB_PORT
+
 aprs_client = APRSClient(CALLSIGN, PASSCODE)
 aprs_client.connect(CALLSIGNS)
 aprs_client.listen_for_messages()
+
+bt_client = BluetoothTNCClient(CALLSIGN, BT_ADDRESS, BT_CHANNEL, DIGIPATH)
+usb_client = SerialTNCClient(CALLSIGN, USB_PORT, USB_BAUDRATE, DIGIPATH)
+
+
+def get_active_client():
+    """The client that should actually carry traffic for the selected
+    Connection mode."""
+    if CONNECTION_MODE == 'bluetooth':
+        return bt_client
+    if CONNECTION_MODE == 'usb':
+        return usb_client
+    return aprs_client
+
+
+def is_connected(mode):
+    if mode == 'bluetooth':
+        return bt_client.connected
+    if mode == 'usb':
+        return usb_client.connected
+    return bool(aprs_client.socket) and aprs_client.running
+
+
+# Best-effort: if Bluetooth/USB was the saved mode with a saved device
+# from a previous run, try to reconnect now. If the device isn't
+# reachable at startup, the app still comes up -- the Connection panel
+# will just show Disconnected until the user hits Connect (or picks a
+# different device).
+if CONNECTION_MODE == 'bluetooth' and BT_ADDRESS:
+    try:
+        bt_client.connect(CALLSIGNS)
+    except Exception as e:
+        print(f"Bluetooth TNC not available at startup: {e}")
+elif CONNECTION_MODE == 'usb' and USB_PORT:
+    try:
+        usb_client.connect(CALLSIGNS)
+    except Exception as e:
+        print(f"USB TNC not available at startup: {e}")
 
 # In-memory history (clears when the app restarts)
 message_history = []
@@ -82,10 +172,11 @@ def split_message(message: str, limit: int = 67):
 
 @app.get('/')
 async def index(request: Request, to_callsign: str = ''):
+    client = get_active_client()
     # Include both sent and received messages in the view
     chat_history = message_history + [
-        {'to': aprs_client.callsign, 'msg': msg['msg'], 'time': msg['time'], 'direction': 'in'}
-        for msg in aprs_client.received_messages
+        {'to': client.callsign, 'msg': msg['msg'], 'time': msg['time'], 'direction': 'in'}
+        for msg in client.received_messages
     ]
 
     return templates.TemplateResponse(
@@ -98,6 +189,8 @@ async def index(request: Request, to_callsign: str = ''):
             'to_callsign': to_callsign,
             'callsigns': CALLSIGNS,
             'messages': get_flashed_messages(request),
+            'connection_mode': CONNECTION_MODE,
+            'connection_connected': is_connected(CONNECTION_MODE),
         },
     )
 
@@ -113,13 +206,14 @@ async def send_message(request: Request, to_callsign: str = Form(...), message: 
     if len(recipients) > 1:
         flash(request, f"Sending to {len(recipients)} recipients: {', '.join(recipients)}")
 
+    client = get_active_client()
     total_sends = len(recipients) * len(chunks)
     sent = 0
     for recipient in recipients:
         for chunk in chunks:
             sent += 1
             try:
-                aprs_client.send_message(recipient, chunk)
+                client.send_message(recipient, chunk)
                 message_history.append({
                     'to': recipient,
                     'msg': chunk,
@@ -142,17 +236,18 @@ async def send_message(request: Request, to_callsign: str = Form(...), message: 
 
 @app.get('/get_messages')
 async def get_messages():
+    client = get_active_client()
     # Get both sent and received messages
     chat_history = message_history + [
         {
             'from': msg.get('from', 'Unknown'),
-            'to': aprs_client.callsign,
+            'to': client.callsign,
             'msg': msg['msg'],
             'msgid': msg['msgid'],
             'time': msg['time'],
             'direction': 'in'
         }
-        for msg in aprs_client.received_messages
+        for msg in client.received_messages
     ]
 
     chat_history.sort(key=lambda x: datetime.strptime(x['time'], '%Y-%m-%d %H:%M:%S'))
@@ -168,6 +263,8 @@ async def add_callsign(callsign: str = Form(...)):
         CALLSIGNS.sort()
         save_callsigns(CALLSIGNS)
         aprs_client.set_filter(CALLSIGNS)
+        bt_client.set_filter(CALLSIGNS)
+        usb_client.set_filter(CALLSIGNS)
     return RedirectResponse(url='/', status_code=303)
 
 
@@ -178,12 +275,78 @@ async def remove_callsign(callsign: str = Form(...)):
         CALLSIGNS.remove(cs)
         save_callsigns(CALLSIGNS)
         aprs_client.set_filter(CALLSIGNS)
+        bt_client.set_filter(CALLSIGNS)
+        usb_client.set_filter(CALLSIGNS)
     return RedirectResponse(url='/', status_code=303)
+
+
+@app.post('/connection/set')
+async def set_connection_mode(mode: str = Form(...)):
+    global CONNECTION_MODE
+    mode = mode.strip().lower()
+    if mode in CONNECTION_MODES:
+        CONNECTION_MODE = mode
+        save_connection_state()
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.get('/connection/status')
+async def connection_status():
+    return {
+        'mode': CONNECTION_MODE,
+        'connected': is_connected(CONNECTION_MODE),
+    }
+
+
+@app.get('/connection/bluetooth/devices')
+async def bluetooth_devices():
+    return {'devices': list_paired_devices(), 'selected': bt_client.address}
+
+
+@app.post('/connection/bluetooth/connect')
+async def bluetooth_connect(address: str = Form(...)):
+    bt_client.disconnect()
+    bt_client.address = address.strip()
+    save_connection_state()
+    try:
+        bt_client.connect(CALLSIGNS)
+        return {'connected': True}
+    except Exception as e:
+        return {'connected': False, 'error': str(e)}
+
+
+@app.post('/connection/bluetooth/disconnect')
+async def bluetooth_disconnect():
+    bt_client.disconnect()
+    return {'connected': False}
+
+
+@app.get('/connection/usb/devices')
+async def usb_devices():
+    return {'devices': list_serial_ports(), 'selected': usb_client.port}
+
+
+@app.post('/connection/usb/connect')
+async def usb_connect(port: str = Form(...)):
+    usb_client.disconnect()
+    usb_client.port = port.strip()
+    save_connection_state()
+    try:
+        usb_client.connect(CALLSIGNS)
+        return {'connected': True}
+    except Exception as e:
+        return {'connected': False, 'error': str(e)}
+
+
+@app.post('/connection/usb/disconnect')
+async def usb_disconnect():
+    usb_client.disconnect()
+    return {'connected': False}
 
 
 @app.get('/get_positions')
 async def get_positions():
-    return list(aprs_client.positions.values())
+    return list(get_active_client().positions.values())
 
 
 @app.post('/send_position')
@@ -193,7 +356,7 @@ async def send_position(request: Request, lat: str = Form(...), lon: str = Form(
         lon_f = float(lon)
         symbol_table = symbol[0] if len(symbol) > 0 else '/'
         symbol_code = symbol[1] if len(symbol) > 1 else '-'
-        aprs_client.send_position(lat_f, lon_f, comment, symbol_table, symbol_code)
+        get_active_client().send_position(lat_f, lon_f, comment, symbol_table, symbol_code)
         flash(request, f"Position sent: {lat_f}, {lon_f}")
     except ValueError:
         flash(request, "Invalid latitude/longitude.")
@@ -206,7 +369,7 @@ async def send_position(request: Request, lat: str = Form(...), lon: str = Form(
 async def clear_messages():
     # Clear the message buffer
     message_history.clear()
-    aprs_client.received_messages.clear()
+    get_active_client().received_messages.clear()
     return {"status": "success", "message": "Message buffer cleared."}
 
 

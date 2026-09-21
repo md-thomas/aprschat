@@ -47,6 +47,37 @@
             </div>
         </aside>
         <div class="col-md-9">
+            <div class="content-card mb-4">
+                <div class="panel-heading-row">
+                    <h2 class="panel-heading">Connection</h2>
+                    <button class="btn btn-sm btn-outline-light panel-toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#connection-collapse" aria-expanded="true" aria-controls="connection-collapse">
+                        <span class="collapse-icon">▾</span>
+                    </button>
+                </div>
+
+                <div class="collapse show" id="connection-collapse">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <form method="post" action="/connection/set" class="m-0">
+                            <select class="form-select form-select-sm w-auto" name="mode" onchange="this.form.submit()" aria-label="Connection type">
+                                <option value="network" {{ 'selected' if connection_mode == 'network' else '' }}>Network</option>
+                                <option value="bluetooth" {{ 'selected' if connection_mode == 'bluetooth' else '' }}>Bluetooth</option>
+                                <option value="usb" {{ 'selected' if connection_mode == 'usb' else '' }}>USB</option>
+                            </select>
+                        </form>
+
+                        {% if connection_mode in ('bluetooth', 'usb') %}
+                        <select class="form-select form-select-sm w-auto" id="connection-device-select" aria-label="Device">
+                            <option value="">Loading devices…</option>
+                        </select>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="connection-refresh-btn" title="Refresh device list">⟳</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="connection-connect-btn">Connect</button>
+                        {% endif %}
+
+                        <span id="connection-status-badge" class="badge {{ 'bg-success' if connection_connected else 'bg-danger' }}">{{ 'Connected' if connection_connected else 'Disconnected' }}</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="content-card">
                 {% block content %}{% endblock %}
             </div>
@@ -308,6 +339,57 @@
         });
     }
 
+    const connectionMode = "{{ connection_mode }}";
+    let connectionConnected = {{ 'true' if connection_connected else 'false' }};
+
+    function updateConnectionUI() {
+        const badge = document.getElementById('connection-status-badge');
+        if (badge) {
+            badge.textContent = connectionConnected ? 'Connected' : 'Disconnected';
+            badge.classList.toggle('bg-success', connectionConnected);
+            badge.classList.toggle('bg-danger', !connectionConnected);
+        }
+        const btn = document.getElementById('connection-connect-btn');
+        if (btn) {
+            btn.textContent = connectionConnected ? 'Disconnect' : 'Connect';
+            btn.classList.toggle('btn-primary', !connectionConnected);
+            btn.classList.toggle('btn-outline-danger', connectionConnected);
+        }
+    }
+
+    function loadConnectionDevices() {
+        const select = document.getElementById('connection-device-select');
+        if (!select || (connectionMode !== 'bluetooth' && connectionMode !== 'usb')) return;
+        select.innerHTML = '<option value="">Loading devices…</option>';
+        $.get(`/connection/${connectionMode}/devices`, function(data) {
+            if (!data || !data.devices) return;
+            const idField = connectionMode === 'bluetooth' ? 'address' : 'port';
+            const labelField = connectionMode === 'bluetooth' ? 'name' : 'description';
+            if (data.devices.length === 0) {
+                select.innerHTML = '<option value="">No devices found</option>';
+                return;
+            }
+            select.innerHTML = data.devices.map(function(d) {
+                const id = d[idField];
+                const label = d[labelField] ? `${id} (${d[labelField]})` : id;
+                const selected = id === data.selected ? 'selected' : '';
+                return `<option value="${escapeHtml(id)}" ${selected}>${escapeHtml(label)}</option>`;
+            }).join('');
+        }).fail(function() {
+            select.innerHTML = '<option value="">Couldn\'t list devices</option>';
+        });
+    }
+
+    function fetchConnectionStatus() {
+        $.get('/connection/status', function(data) {
+            if (!data || data.mode !== connectionMode) return;
+            connectionConnected = !!data.connected;
+            updateConnectionUI();
+        }).fail(function(xhr, status, error) {
+            console.log('Error fetching connection status:', error);
+        });
+    }
+
     function fetchMessages() {
         $.get("/get_messages", function(data) {
             if (!data || data.length === 0) {
@@ -367,6 +449,7 @@
     }
 
     $(document).ready(function() {
+        restoreCollapseState('connection-collapse');
         restoreCollapseState('messages-collapse');
         restoreCollapseState('map-collapse');
 
@@ -407,7 +490,7 @@
             }
         });
 
-        $('#messages-collapse, #map-collapse').on('shown.bs.collapse hidden.bs.collapse', function(e) {
+        $('#connection-collapse, #messages-collapse, #map-collapse').on('shown.bs.collapse hidden.bs.collapse', function(e) {
             try {
                 localStorage.setItem('aprschat_collapsed_' + e.target.id, e.type === 'hidden' ? 'true' : 'false');
             } catch (err) {
@@ -447,6 +530,45 @@
         if (!fetchInterval) {
             fetchInterval = setInterval(fetchMessages, 5000);
         }
+
+        updateConnectionUI();
+        loadConnectionDevices();
+        fetchConnectionStatus();
+        setInterval(fetchConnectionStatus, 10000);
+
+        $('#connection-refresh-btn').on('click', loadConnectionDevices);
+
+        $('#connection-connect-btn').on('click', function() {
+            const btn = $(this);
+            const select = document.getElementById('connection-device-select');
+            const deviceValue = select ? select.value : '';
+            btn.prop('disabled', true);
+
+            if (connectionConnected) {
+                $.post(`/connection/${connectionMode}/disconnect`, function() {
+                    connectionConnected = false;
+                    updateConnectionUI();
+                }).always(function() { btn.prop('disabled', false); });
+                return;
+            }
+
+            if (!deviceValue) {
+                alert('Pick a device first.');
+                btn.prop('disabled', false);
+                return;
+            }
+
+            const field = connectionMode === 'bluetooth' ? 'address' : 'port';
+            $.post(`/connection/${connectionMode}/connect`, { [field]: deviceValue }, function(data) {
+                connectionConnected = !!(data && data.connected);
+                updateConnectionUI();
+                if (!connectionConnected && data && data.error) {
+                    alert('Could not connect: ' + data.error);
+                }
+            }).fail(function() {
+                alert('Could not connect.');
+            }).always(function() { btn.prop('disabled', false); });
+        });
 
         initMap();
         fetchPositions();

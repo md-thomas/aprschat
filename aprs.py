@@ -6,6 +6,8 @@ import logging
 import random
 import string
 
+import aprs_packet
+
 
 # Set up logging configuration
 logging.basicConfig(
@@ -56,66 +58,23 @@ class APRSClient:
     def send_message(self, to_callsign, message):
         if not self.socket:
             raise ConnectionError("Not connected to APRS-IS server.")
-    
-        # Pad recipient to 9 characters (APRS spec)
-        to_callsign_padded = to_callsign.upper().ljust(9)
 
-        # if len(message) > 67:
-        #     print(f"[WARNING] Message too long. Trimming to 67 characters.")
-        #     message = message[:67]
-        
         msg_num = self.get_next_id()
-        aprs_packet = f"{self.callsign}>APRS,TCPIP*::{to_callsign_padded}:{message}{{{msg_num}\r\n"
-        
+        info = aprs_packet.message_info_field(to_callsign, message, msg_num)
+        packet = f"{self.callsign}>APRS,TCPIP*:{info}\r\n"
+
         # log messages being sent
         logging.info(f"Sent message to {to_callsign}: {message}")
 
-        print("Sending APRS packet:", aprs_packet.strip())
-        self.socket.sendall(aprs_packet.encode())
-
-    @staticmethod
-    def _format_lat(lat):
-        hemi = 'N' if lat >= 0 else 'S'
-        lat = abs(lat)
-        degrees = int(lat)
-        minutes = (lat - degrees) * 60
-        return f"{degrees:02d}{minutes:05.2f}{hemi}"
-
-    @staticmethod
-    def _format_lon(lon):
-        hemi = 'E' if lon >= 0 else 'W'
-        lon = abs(lon)
-        degrees = int(lon)
-        minutes = (lon - degrees) * 60
-        return f"{degrees:03d}{minutes:05.2f}{hemi}"
-
-    @staticmethod
-    def _parse_lat(lat_str):
-        try:
-            degrees = int(lat_str[0:2])
-            minutes = float(lat_str[2:7])
-            value = degrees + minutes / 60
-            return -value if lat_str[7] == 'S' else value
-        except (ValueError, IndexError):
-            return None
-
-    @staticmethod
-    def _parse_lon(lon_str):
-        try:
-            degrees = int(lon_str[0:3])
-            minutes = float(lon_str[3:8])
-            value = degrees + minutes / 60
-            return -value if lon_str[8] == 'W' else value
-        except (ValueError, IndexError):
-            return None
+        print("Sending APRS packet:", packet.strip())
+        self.socket.sendall(packet.encode())
 
     def send_position(self, lat, lon, comment='', symbol_table='/', symbol_code='-'):
         if not self.socket:
             raise ConnectionError("Not connected to APRS-IS server.")
 
-        lat_str = self._format_lat(lat)
-        lon_str = self._format_lon(lon)
-        packet = f"{self.callsign}>APRS,TCPIP*:!{lat_str}{symbol_table}{lon_str}{symbol_code}{comment}\r\n"
+        info = aprs_packet.position_info_field(lat, lon, comment, symbol_table, symbol_code)
+        packet = f"{self.callsign}>APRS,TCPIP*:{info}\r\n"
 
         logging.info(f"Sent position: {lat},{lon} {comment}")
         print("Sending APRS position packet:", packet.strip())
@@ -134,40 +93,7 @@ class APRSClient:
 
     def parse_position(self, packet):
         """Parse an uncompressed APRS position report (!/=/@//) from a raw APRS-IS line."""
-        try:
-            header, info = packet.split(':', 1)
-            if not info or info[0] not in ('!', '=', '/', '@'):
-                return None
-
-            from_callsign = header.split('>')[0].strip().upper()
-            body = info[1:]
-            if info[0] in ('/', '@'):
-                body = body[7:]  # skip the DDHHMMz/DDHHMM/ timestamp
-
-            if len(body) < 19:
-                return None  # too short to be uncompressed lat/lon (likely Mic-E/compressed)
-
-            lat_str, symbol_table, lon_str, symbol_code = body[0:8], body[8], body[9:18], body[18]
-            if lat_str[-1] not in 'NS' or lon_str[-1] not in 'EW':
-                return None  # not the plain uncompressed format we support
-
-            lat = self._parse_lat(lat_str)
-            lon = self._parse_lon(lon_str)
-            if lat is None or lon is None:
-                return None
-
-            return {
-                'from': from_callsign,
-                'lat': lat,
-                'lon': lon,
-                'comment': body[19:].strip(),
-                'symbol_table': symbol_table,
-                'symbol_code': symbol_code,
-                'time': time.strftime('%Y-%m-%d %H:%M:%S'),
-            }
-        except Exception as e:
-            print(f"Error parsing position: {e}")
-            return None
+        return aprs_packet.parse_position(packet)
 
     def send_ack(self, msgid):
         # Create the acknowledgment message using the message ID.
@@ -218,36 +144,7 @@ class APRSClient:
         thread.start()
 
     def parse_message(self, packet):
-        try:
-            parts = packet.split("::")
-            if len(parts) > 1:
-                # Get everything before '::' (packet header), then split by '>' to get sender callsign
-                raw_header = parts[0].strip()
-                from_callsign = raw_header.split(">")[0].strip()
-    
-                rest = parts[1]
-                to_and_msg = rest.split(":", 1)
-                if len(to_and_msg) == 2:
-                    raw_msg = to_and_msg[1].strip()
-                    if "{" in raw_msg:
-                        msg, msgid = raw_msg.split("{")
-                        msgid = msgid.strip()
-                    else:
-                        msg = raw_msg
-                        msgid = None
-                    
-                    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-                    parsed = {
-                        "from": from_callsign,
-                        "msg": msg,
-                        "msgid": msgid,
-                        "time": timestamp
-                    }
-                    print(f"[DEBUG] {parsed}")
-                    return parsed
-        except Exception as e:
-            print(f"Error parsing message: {e}")
-            return None
+        return aprs_packet.parse_message(packet, self.callsign)
 
     def close(self):
         """Closes the connection to the APRS-IS server."""
