@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from aprs import APRSClient
 from bluetooth_tnc import BluetoothTNCClient, list_paired_devices
 from serial_tnc import SerialTNCClient, list_serial_ports
+from uvpro_tnc import UvProTNCClient
 import version
 
 app = FastAPI()
@@ -42,6 +43,11 @@ BT_CHANNEL = int(_bt_channel) if _bt_channel else None
 CONFIG_USB_PORT = config.get('usb', 'port', fallback='').strip()
 USB_BAUDRATE = int(config.get('usb', 'baudrate', fallback='9600').strip() or 9600)
 
+# UV-Pro/Benshi-class radio (BTech UV-Pro, Vero VR-N76, ...) -- a different
+# Bluetooth protocol from the plain KISS-over-RFCOMM TNCs above, so it gets
+# its own address setting and its own client (see uvpro_tnc.py).
+CONFIG_UVPRO_ADDRESS = config.get('uvpro', 'address', fallback='').strip()
+
 DIGIPATH = config.get('rf', 'digipath', fallback='WIDE1-1,WIDE2-1').split(',')
 
 # Saved callsigns shown in the sidebar, editable from the web page
@@ -63,11 +69,11 @@ def save_callsigns(callsigns):
 CALLSIGNS = load_callsigns()
 
 # Selected transport + selected device for the Connection panel, all
-# three ('network'/APRS-IS, 'bluetooth', 'usb') fully wired up. The
+# four ('network'/APRS-IS, 'bluetooth', 'usb', 'uvpro') fully wired up. The
 # device picked from the panel (persisted here) takes precedence over
 # aprschat.config's address/port on the next startup, since it reflects
 # whatever the user last actually chose.
-CONNECTION_MODES = ('network', 'bluetooth', 'usb')
+CONNECTION_MODES = ('network', 'bluetooth', 'usb', 'uvpro')
 CONNECTION_FILE = Path('connection.json')
 
 
@@ -81,6 +87,7 @@ def load_connection_state():
         'mode': mode if mode in CONNECTION_MODES else 'network',
         'bluetooth_address': data.get('bluetooth_address', ''),
         'usb_port': data.get('usb_port', ''),
+        'uvpro_address': data.get('uvpro_address', ''),
     }
 
 
@@ -90,6 +97,7 @@ def save_connection_state():
             'mode': CONNECTION_MODE,
             'bluetooth_address': bt_client.address,
             'usb_port': usb_client.port,
+            'uvpro_address': uvpro_client.address,
         }, f, indent=2)
 
 
@@ -97,6 +105,7 @@ _state = load_connection_state()
 CONNECTION_MODE = _state['mode']
 BT_ADDRESS = _state['bluetooth_address'] or CONFIG_BT_ADDRESS
 USB_PORT = _state['usb_port'] or CONFIG_USB_PORT
+UVPRO_ADDRESS = _state['uvpro_address'] or CONFIG_UVPRO_ADDRESS
 
 aprs_client = APRSClient(CALLSIGN, PASSCODE)
 aprs_client.connect(CALLSIGNS)
@@ -104,6 +113,7 @@ aprs_client.listen_for_messages()
 
 bt_client = BluetoothTNCClient(CALLSIGN, BT_ADDRESS, BT_CHANNEL, DIGIPATH)
 usb_client = SerialTNCClient(CALLSIGN, USB_PORT, USB_BAUDRATE, DIGIPATH)
+uvpro_client = UvProTNCClient(CALLSIGN, UVPRO_ADDRESS, DIGIPATH)
 
 
 def get_active_client():
@@ -113,6 +123,8 @@ def get_active_client():
         return bt_client
     if CONNECTION_MODE == 'usb':
         return usb_client
+    if CONNECTION_MODE == 'uvpro':
+        return uvpro_client
     return aprs_client
 
 
@@ -121,11 +133,13 @@ def is_connected(mode):
         return bt_client.connected
     if mode == 'usb':
         return usb_client.connected
+    if mode == 'uvpro':
+        return uvpro_client.connected
     return bool(aprs_client.socket) and aprs_client.running
 
 
-# Best-effort: if Bluetooth/USB was the saved mode with a saved device
-# from a previous run, try to reconnect now. If the device isn't
+# Best-effort: if Bluetooth/USB/UV-Pro was the saved mode with a saved
+# device from a previous run, try to reconnect now. If the device isn't
 # reachable at startup, the app still comes up -- the Connection panel
 # will just show Disconnected until the user hits Connect (or picks a
 # different device).
@@ -139,6 +153,11 @@ elif CONNECTION_MODE == 'usb' and USB_PORT:
         usb_client.connect(CALLSIGNS)
     except Exception as e:
         print(f"USB TNC not available at startup: {e}")
+elif CONNECTION_MODE == 'uvpro' and UVPRO_ADDRESS:
+    try:
+        uvpro_client.connect(CALLSIGNS)
+    except Exception as e:
+        print(f"UV-Pro not available at startup: {e}")
 
 # In-memory history (clears when the app restarts)
 message_history = []
@@ -265,6 +284,7 @@ async def add_callsign(callsign: str = Form(...)):
         aprs_client.set_filter(CALLSIGNS)
         bt_client.set_filter(CALLSIGNS)
         usb_client.set_filter(CALLSIGNS)
+        uvpro_client.set_filter(CALLSIGNS)
     return RedirectResponse(url='/', status_code=303)
 
 
@@ -277,6 +297,7 @@ async def remove_callsign(callsign: str = Form(...)):
         aprs_client.set_filter(CALLSIGNS)
         bt_client.set_filter(CALLSIGNS)
         usb_client.set_filter(CALLSIGNS)
+        uvpro_client.set_filter(CALLSIGNS)
     return RedirectResponse(url='/', status_code=303)
 
 
@@ -318,6 +339,32 @@ async def bluetooth_connect(address: str = Form(...)):
 @app.post('/connection/bluetooth/disconnect')
 async def bluetooth_disconnect():
     bt_client.disconnect()
+    return {'connected': False}
+
+
+@app.get('/connection/uvpro/devices')
+async def uvpro_devices():
+    # Same paired-device list as the Bluetooth tab -- a UV-Pro/Benshi
+    # radio pairs like any other Bluetooth device, it just needs the
+    # different protocol uvpro_tnc.py speaks once connected.
+    return {'devices': list_paired_devices(), 'selected': uvpro_client.address}
+
+
+@app.post('/connection/uvpro/connect')
+async def uvpro_connect(address: str = Form(...)):
+    uvpro_client.disconnect()
+    uvpro_client.address = address.strip()
+    save_connection_state()
+    try:
+        uvpro_client.connect(CALLSIGNS)
+        return {'connected': True}
+    except Exception as e:
+        return {'connected': False, 'error': str(e)}
+
+
+@app.post('/connection/uvpro/disconnect')
+async def uvpro_disconnect():
+    uvpro_client.disconnect()
     return {'connected': False}
 
 

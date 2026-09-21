@@ -58,18 +58,19 @@
                 <div class="collapse show" id="connection-collapse">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                         <form method="post" action="/connection/set" class="m-0">
-                            <select class="form-select form-select-sm w-auto" name="mode" onchange="this.form.submit()" aria-label="Connection type">
+                            <select class="form-select form-select-sm w-auto" id="connection-mode-select" name="mode" onchange="this.form.submit()" aria-label="Connection type">
                                 <option value="network" {{ 'selected' if connection_mode == 'network' else '' }}>Network</option>
-                                <option value="bluetooth" {{ 'selected' if connection_mode == 'bluetooth' else '' }}>Bluetooth</option>
+                                <option value="bluetooth" {{ 'selected' if connection_mode == 'bluetooth' else '' }}>Bluetooth (KISS TNC)</option>
                                 <option value="usb" {{ 'selected' if connection_mode == 'usb' else '' }}>USB</option>
+                                <option value="uvpro" {{ 'selected' if connection_mode == 'uvpro' else '' }}>Bluetooth (UV-Pro/Benshi)</option>
                             </select>
                         </form>
 
-                        {% if connection_mode in ('bluetooth', 'usb') %}
+                        {% if connection_mode in ('bluetooth', 'usb', 'uvpro') %}
                         <select class="form-select form-select-sm w-auto" id="connection-device-select" aria-label="Device">
                             <option value="">Loading devices…</option>
                         </select>
-                        <button type="button" class="btn btn-sm btn-outline-light" id="connection-refresh-btn" title="Refresh device list">⟳</button>
+                        <button type="button" class="btn btn-sm btn-outline-light" id="connection-refresh-btn" title="Refresh device list">🔄</button>
                         <button type="button" class="btn btn-sm btn-primary" id="connection-connect-btn">Connect</button>
                         {% endif %}
 
@@ -103,7 +104,10 @@
                         <div class="tab-pane fade show active" id="map-pane" role="tabpanel">
                             <div class="d-flex justify-content-between align-items-center mb-1">
                                 <small class="text-muted">Drag the map's bottom-right corner to resize</small>
-                                <button type="button" id="reset-map-size-btn" class="btn btn-sm btn-link p-0">Reset size</button>
+                                <div>
+                                    <button type="button" id="pick-location-btn" class="btn btn-sm btn-outline-light" title="Click a point on the map to set your location">🎯 Pick location</button>
+                                    <button type="button" id="reset-map-size-btn" class="btn btn-sm btn-link p-0">Reset size</button>
+                                </div>
                             </div>
                             <div id="map"></div>
 
@@ -167,6 +171,7 @@
     let fetchInterval;
     let map;
     let myLocationMarker;
+    let pickingLocation = false;
     const markers = {};
 
     function escapeHtml(str) {
@@ -238,20 +243,36 @@
         });
     }
 
-    function showMyLocation(lat, lon) {
+    function showMyLocation(lat, lon, recenter = true) {
         if (!map) return;
         const latlng = [lat, lon];
         if (myLocationMarker) {
             myLocationMarker.setLatLng(latlng);
         } else {
-            myLocationMarker = L.marker(latlng, { icon: myLocationIcon });
+            myLocationMarker = L.marker(latlng, { icon: myLocationIcon, draggable: true });
             myLocationMarker.bindTooltip('{{ callsign }} (You)', { permanent: true, direction: 'top', offset: [0, -20] });
+            myLocationMarker.on('dragend', function() {
+                const pos = myLocationMarker.getLatLng();
+                setLocationFields(pos.lat, pos.lng);
+            });
             if (!hiddenMarkers.has('__my_location__')) {
                 myLocationMarker.addTo(map);
             }
         }
         myLocationMarker.bindPopup('You are here');
-        map.setView(latlng, 10);
+        if (recenter) map.setView(latlng, 10);
+    }
+
+    function setLocationFields(lat, lon, recenter = false) {
+        $('#lat').val(lat.toFixed(5)).trigger('input');
+        $('#lon').val(lon.toFixed(5)).trigger('input');
+        showMyLocation(lat, lon, recenter);
+    }
+
+    function setPickingLocation(on) {
+        pickingLocation = on;
+        $('#pick-location-btn').toggleClass('btn-outline-light', !on).toggleClass('btn-primary', on);
+        $('#map').toggleClass('picking-location', on);
     }
 
     function initMap() {
@@ -267,11 +288,38 @@
             console.log('Could not read saved map height:', e);
         }
 
-        map = L.map('map').setView([39.8283, -98.5795], 4);
+        let initialCenter = [39.8283, -98.5795];
+        let initialZoom = 4;
+        try {
+            const savedView = JSON.parse(localStorage.getItem('aprschat_map_view') || 'null');
+            if (savedView && Array.isArray(savedView.center) && typeof savedView.zoom === 'number') {
+                initialCenter = savedView.center;
+                initialZoom = savedView.zoom;
+            }
+        } catch (e) {
+            console.log('Could not read saved map view:', e);
+        }
+
+        map = L.map('map').setView(initialCenter, initialZoom);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 18,
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
+
+        map.on('moveend', function() {
+            try {
+                const center = map.getCenter();
+                localStorage.setItem('aprschat_map_view', JSON.stringify({ center: [center.lat, center.lng], zoom: map.getZoom() }));
+            } catch (e) {
+                console.log('Could not save map view:', e);
+            }
+        });
+
+        map.on('click', function(e) {
+            if (!pickingLocation) return;
+            setLocationFields(e.latlng.lat, e.latlng.lng);
+            setPickingLocation(false);
+        });
 
         let resizeSaveTimeout;
         new ResizeObserver(entries => {
@@ -359,12 +407,12 @@
 
     function loadConnectionDevices() {
         const select = document.getElementById('connection-device-select');
-        if (!select || (connectionMode !== 'bluetooth' && connectionMode !== 'usb')) return;
+        if (!select || !['bluetooth', 'usb', 'uvpro'].includes(connectionMode)) return;
         select.innerHTML = '<option value="">Loading devices…</option>';
         $.get(`/connection/${connectionMode}/devices`, function(data) {
             if (!data || !data.devices) return;
-            const idField = connectionMode === 'bluetooth' ? 'address' : 'port';
-            const labelField = connectionMode === 'bluetooth' ? 'name' : 'description';
+            const idField = connectionMode === 'usb' ? 'port' : 'address';
+            const labelField = connectionMode === 'usb' ? 'description' : 'name';
             if (data.devices.length === 0) {
                 select.innerHTML = '<option value="">No devices found</option>';
                 return;
@@ -558,7 +606,7 @@
                 return;
             }
 
-            const field = connectionMode === 'bluetooth' ? 'address' : 'port';
+            const field = connectionMode === 'usb' ? 'port' : 'address';
             $.post(`/connection/${connectionMode}/connect`, { [field]: deviceValue }, function(data) {
                 connectionConnected = !!(data && data.connected);
                 updateConnectionUI();
@@ -582,6 +630,10 @@
             if (map) map.invalidateSize();
         });
 
+        $('#pick-location-btn').on('click', function() {
+            setPickingLocation(!pickingLocation);
+        });
+
         $('#reset-map-size-btn').on('click', function() {
             const mapEl = document.getElementById('map');
             mapEl.style.height = '';
@@ -595,7 +647,9 @@
 
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(function(position) {
-                showMyLocation(position.coords.latitude, position.coords.longitude);
+                // Just place the marker -- don't recenter/rezoom on every
+                // page load, or panning/zooming the map never sticks.
+                showMyLocation(position.coords.latitude, position.coords.longitude, false);
             }, function(err) {
                 console.log('Geolocation unavailable:', err);
             });
@@ -633,9 +687,7 @@
             const btn = $(this);
             btn.prop('disabled', true);
             navigator.geolocation.getCurrentPosition(function(position) {
-                $('#lat').val(position.coords.latitude.toFixed(5)).trigger('input');
-                $('#lon').val(position.coords.longitude.toFixed(5)).trigger('input');
-                showMyLocation(position.coords.latitude, position.coords.longitude);
+                setLocationFields(position.coords.latitude, position.coords.longitude, true);
                 btn.prop('disabled', false);
             }, function(err) {
                 console.log('Geolocation error:', err);

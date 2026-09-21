@@ -1,0 +1,149 @@
+"""Runtime compatibility patches for benlink, needed to talk to a UV-Pro/
+Benshi-class radio's real firmware. Import this (for its side effects)
+before connecting -- uvpro_tnc.py does so.
+
+Ported from the open_uvpro project's scripts/patches.py, where these were
+each found the hard way against real hardware; see that project's
+NOTES.md for the debugging history behind each one.
+"""
+
+import asyncio
+import os
+
+import benlink  # noqa: F401 (ensures all protocol submodules are imported)
+from benlink.protocol.command.bitfield import NOT_PROVIDED, Bitfield, BFLit
+
+# This radio's firmware sets bits in fields benlink's protocol definitions
+# treat as always-zero reserved padding (e.g. DevInfo._pad, RfCh._pad, ...).
+# Relax every such literal-padding field to a plain int across all known
+# Bitfield subclasses, so decoding doesn't hard-fail on firmware benlink
+# wasn't originally tested against. Keep the literal's default (usually 0)
+# on the unwrapped field so constructing a *new* instance without
+# explicitly passing the field still works.
+
+
+def _all_bitfield_subclasses():
+    seen = set()
+    stack = [Bitfield]
+    while stack:
+        cls = stack.pop()
+        for sub in cls.__subclasses__():
+            if sub not in seen:
+                seen.add(sub)
+                stack.append(sub)
+    return seen
+
+
+def _with_default(field, default):
+    if hasattr(field, "default") and getattr(field, "default") is NOT_PROVIDED:
+        return field._replace(default=default)
+    return field
+
+
+for _cls in _all_bitfield_subclasses():
+    for _name, _field in list(_cls._fields.items()):
+        if isinstance(_field, BFLit) and _name.lower().startswith("_pad"):
+            _cls._fields[_name] = _with_default(_field.inner, _field.default)
+
+
+# bleak's BlueZ backend normally requires a fresh LE advertisement scan to
+# locate the device before connecting, which fails if the radio isn't
+# actively advertising even though it's already bonded/known to BlueZ.
+# Bypass the scan by connecting straight to the known, stable D-Bus object
+# path for the bonded device instead.
+from benlink import link as _link  # noqa: E402
+from bleak import BleakClient  # noqa: E402
+from bleak.backends.device import BLEDevice  # noqa: E402
+
+_ADAPTER = os.environ.get("BENLINK_ADAPTER", "hci0")
+
+
+def _ble_init(self, device_uuid: str) -> None:
+    path = f"/org/bluez/{_ADAPTER}/dev_" + device_uuid.replace(":", "_").upper()
+    device = BLEDevice(device_uuid, None, details={"path": path})
+    self._client = BleakClient(device, timeout=60)
+
+
+_link.BleCommandLink.__init__ = _ble_init
+
+
+# The radio's BLE link is briefly unstable right after connecting (likely
+# while it's also negotiating classic audio/SPP profiles in parallel), and
+# the very first GATT write can fail with "Not connected" even though
+# connect()/start_notify() just succeeded. Give it a moment to settle.
+_orig_ble_connect = _link.BleCommandLink.connect
+
+
+async def _ble_connect(self, callback):
+    await _orig_ble_connect(self, callback)
+    await asyncio.sleep(2.0)
+
+
+_link.BleCommandLink.connect = _ble_connect
+
+
+# The radio's RFCOMM command service needs real recovery time between
+# sessions -- closing a connection and opening a fresh one shortly after
+# gets refused, even after a long wait. So instead of discovering the
+# live channel with a throwaway probe connection and then opening a
+# *second* connection for the real benlink session, we hand off the same
+# still-open socket from the probe directly into benlink's RfcommClient.
+import socket as _socket  # noqa: E402
+
+PENDING_SOCKETS: dict[tuple[str, int], _socket.socket] = {}
+
+_orig_rfcomm_connect = _link.RfcommClient.connect
+
+
+async def _rfcomm_connect_reuse(self, callback):
+    loop = asyncio.get_event_loop()
+    if self._st is not None:
+        raise RuntimeError("Already connected")
+
+    key = (self._device_uuid, self._channel)
+    socket_handle = PENDING_SOCKETS.pop(key, None)
+    if socket_handle is None:
+        await _orig_rfcomm_connect(self, callback)
+        return
+
+    socket_handle.setblocking(False)
+
+    async def listen():
+        while True:
+            data = await loop.sock_recv(socket_handle, self._read_size)
+            if not data:
+                self._st = None
+                break
+            callback(data)
+
+    listen_task = loop.create_task(listen())
+    self._st = _link.SocketTask(socket_handle, listen_task)
+
+
+_link.RfcommClient.connect = _rfcomm_connect_reuse
+
+
+# This firmware occasionally sends a message benlink's Gaia-frame parser
+# can't handle (real off-air packet traffic relayed as a DATA_RXD
+# notification, itself KISS-framed in a way benlink's length arithmetic
+# doesn't account for). The default from_bitstream_batch(consume_errors=
+# False) lets that raise, which kills the whole read loop and connection
+# over one bad message. benlink already has a resync mode for exactly
+# this (consume_errors=True: drop one byte and keep scanning for the next
+# valid frame instead of raising) -- it's just not the default. Use it.
+import benlink.protocol as _p  # noqa: E402
+
+
+async def _resync_command_link_connect(self, callback):
+    def on_data(data: bytes):
+        self._buffer = self._buffer.extend_bytes(data)
+        gaia_frames, self._buffer = _p.GaiaFrame.from_bitstream_batch(
+            self._buffer, consume_errors=True
+        )
+        for gaia_frame in gaia_frames:
+            callback(_p.Message.from_bytes(gaia_frame.data))
+
+    await self._client.connect(on_data)
+
+
+_link.RfcommCommandLink.connect = _resync_command_link_connect

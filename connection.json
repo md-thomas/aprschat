@@ -1,5 +1,6 @@
 {
-  "mode": "network",
-  "bluetooth_address": "",
-  "usb_port": ""
+  "mode": "uvpro",
+  "bluetooth_address": "38:D2:00:01:85:BF",
+  "usb_port": "",
+  "uvpro_address": "38:D2:00:01:85:BF"
 }

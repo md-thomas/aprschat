@@ -1,0 +1,16 @@
+[Unit]
+Description=APRS webchat (aprschat)
+After=network-online.target bluetooth.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mdthomas
+Group=mdthomas
+WorkingDirectory=/home/mdthomas/Projects/aprschat
+ExecStart=/home/mdthomas/Projects/aprschat/venv/bin/python3 app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
