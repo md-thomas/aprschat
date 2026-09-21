@@ -34,3 +34,7 @@ different port, e.g. ./start.sh -p 8080
 6. [x] create a group of callsigns to send messages to
 7. [x] add a map to show a location for users
 8. [x] add a send position button 
+
+# Credits
+Map station icons are from the aprs.fi open APRS symbol set:
+https://github.com/hessu/aprs-symbols

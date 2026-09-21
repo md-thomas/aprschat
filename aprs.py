@@ -109,13 +109,13 @@ class APRSClient:
         except (ValueError, IndexError):
             return None
 
-    def send_position(self, lat, lon, comment=''):
+    def send_position(self, lat, lon, comment='', symbol_table='/', symbol_code='-'):
         if not self.socket:
             raise ConnectionError("Not connected to APRS-IS server.")
 
         lat_str = self._format_lat(lat)
         lon_str = self._format_lon(lon)
-        packet = f"{self.callsign}>APRS,TCPIP*:!{lat_str}/{lon_str}-{comment}\r\n"
+        packet = f"{self.callsign}>APRS,TCPIP*:!{lat_str}{symbol_table}{lon_str}{symbol_code}{comment}\r\n"
 
         logging.info(f"Sent position: {lat},{lon} {comment}")
         print("Sending APRS position packet:", packet.strip())
@@ -127,6 +127,8 @@ class APRSClient:
             'lat': lat,
             'lon': lon,
             'comment': comment,
+            'symbol_table': symbol_table,
+            'symbol_code': symbol_code,
             'time': time.strftime('%Y-%m-%d %H:%M:%S'),
         }
 
@@ -145,7 +147,7 @@ class APRSClient:
             if len(body) < 19:
                 return None  # too short to be uncompressed lat/lon (likely Mic-E/compressed)
 
-            lat_str, lon_str = body[0:8], body[9:18]
+            lat_str, symbol_table, lon_str, symbol_code = body[0:8], body[8], body[9:18], body[18]
             if lat_str[-1] not in 'NS' or lon_str[-1] not in 'EW':
                 return None  # not the plain uncompressed format we support
 
@@ -159,6 +161,8 @@ class APRSClient:
                 'lat': lat,
                 'lon': lon,
                 'comment': body[19:].strip(),
+                'symbol_table': symbol_table,
+                'symbol_code': symbol_code,
                 'time': time.strftime('%Y-%m-%d %H:%M:%S'),
             }
         except Exception as e:

@@ -77,16 +77,44 @@
                             <div id="map"></div>
 
                             <form method="post" action="/send_position" class="mt-3">
-                                <div class="search-wrapper">
+                                <div class="search-wrapper mb-2">
                                     <input type="text" class="form-control" id="lat" name="lat" placeholder="Latitude (e.g. 39.7392)" required>
                                     <input type="text" class="form-control" id="lon" name="lon" placeholder="Longitude (e.g. -104.9903)" required>
                                     <button type="button" id="use-location-btn" class="btn btn-outline-light" title="Use my current location">📍</button>
+                                    <span id="symbol-preview"></span>
+                                    <select class="form-select" id="symbol-select" name="symbol">
+                                        <option value="/-" selected>House</option>
+                                        <option value="/>">Car</option>
+                                        <option value="/k">Truck</option>
+                                        <option value="/j">Jeep</option>
+                                        <option value="/v">Van</option>
+                                        <option value="/R">RV</option>
+                                        <option value="/<">Motorcycle</option>
+                                        <option value="/b">Bicycle</option>
+                                        <option value="/[">Human</option>
+                                        <option value="/f">Fire truck</option>
+                                        <option value="/Y">Sailboat</option>
+                                        <option value="/'">Small aircraft</option>
+                                        <option value="/O">Balloon</option>
+                                        <option value="/_">Weather station</option>
+                                    </select>
+                                </div>
+                                <div class="search-wrapper">
+                                    <input type="text" class="form-control" name="comment" placeholder="Message (optional)" maxlength="43">
                                     <button type="submit" class="btn btn-primary">Send Position</button>
                                 </div>
                             </form>
                         </div>
                         <div class="tab-pane fade" id="positions-pane" role="tabpanel">
-                            <pre id="positions-text" class="positions-box">No positions received yet.</pre>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="my-location-toggle" checked>
+                                <label class="form-check-label" for="my-location-toggle">My Location (GPS)</label>
+                            </div>
+                            <div class="positions-box">
+                                <ul class="list-group list-group-flush" id="positions-list">
+                                    <li class="list-group-item text-muted">No positions received yet.</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -110,6 +138,28 @@
     let myLocationMarker;
     const markers = {};
 
+    function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, function(c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    let hiddenMarkers = new Set();
+    try {
+        const saved = localStorage.getItem('aprschat_hidden_markers');
+        if (saved) hiddenMarkers = new Set(JSON.parse(saved));
+    } catch (e) {
+        console.log('Could not read hidden markers:', e);
+    }
+
+    function saveHiddenMarkers() {
+        try {
+            localStorage.setItem('aprschat_hidden_markers', JSON.stringify([...hiddenMarkers]));
+        } catch (e) {
+            console.log('Could not save hidden markers:', e);
+        }
+    }
+
     function pinIcon(className, color, strokeColor) {
         return L.divIcon({
             className: className,
@@ -126,14 +176,48 @@
     const myLocationIcon = pinIcon('my-location-pin', '#22d3ee', '#083344');
     const stationIcon = pinIcon('station-pin', '#22c55e', '#052e13');
 
+    // Real APRS symbol icons (aprs.fi's open symbol set: https://github.com/hessu/aprs-symbols)
+    // Vendored locally (not CDN) so this keeps working on an offline/RF-only deployment.
+    const APRS_SYMBOL_SIZE = 24;
+    const APRS_SHEET_COLS = 16;
+    const APRS_SHEET_ROWS = 6;
+    const APRS_PRIMARY_SHEET = "{{ url_for('static', path='/aprs-symbols-24-0.png') }}";
+    const APRS_SECONDARY_SHEET = "{{ url_for('static', path='/aprs-symbols-24-1.png') }}";
+
+    function aprsSpritePosition(table, code) {
+        if (!table || !code) return null;
+        const idx = code.charCodeAt(0) - 33; // symbol table starts at '!' (ASCII 33)
+        if (idx < 0 || idx > 93) return null; // 94 printable ASCII symbols, '!' through '~'
+        const col = idx % 16;
+        const row = Math.floor(idx / 16);
+        const sheet = table === '\\' ? APRS_SECONDARY_SHEET : APRS_PRIMARY_SHEET;
+        return { sheet, x: col * APRS_SYMBOL_SIZE, y: row * APRS_SYMBOL_SIZE };
+    }
+
+    function aprsSymbolIcon(table, code) {
+        const pos = aprsSpritePosition(table, code);
+        if (!pos) return null;
+        const size = APRS_SYMBOL_SIZE;
+        return L.divIcon({
+            className: 'aprs-symbol-icon',
+            html: `<div style="width:${size}px;height:${size}px;background-image:url('${pos.sheet}');background-position:-${pos.x}px -${pos.y}px;background-repeat:no-repeat;"></div>`,
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+            popupAnchor: [0, -size / 2]
+        });
+    }
+
     function showMyLocation(lat, lon) {
         if (!map) return;
         const latlng = [lat, lon];
         if (myLocationMarker) {
             myLocationMarker.setLatLng(latlng);
         } else {
-            myLocationMarker = L.marker(latlng, { icon: myLocationIcon }).addTo(map);
+            myLocationMarker = L.marker(latlng, { icon: myLocationIcon });
             myLocationMarker.bindTooltip('{{ callsign }} (You)', { permanent: true, direction: 'top', offset: [0, -20] });
+            if (!hiddenMarkers.has('__my_location__')) {
+                myLocationMarker.addTo(map);
+            }
         }
         myLocationMarker.bindPopup('You are here');
         map.setView(latlng, 10);
@@ -172,17 +256,32 @@
         }).observe(mapEl);
     }
 
-    function updatePositionsText(data) {
-        const el = document.getElementById('positions-text');
+    function updatePositionsList(data) {
+        const el = document.getElementById('positions-list');
         if (!el) return;
         if (!data || data.length === 0) {
-            el.textContent = 'No positions received yet.';
+            el.innerHTML = '<li class="list-group-item text-muted">No positions received yet.</li>';
             return;
         }
-        el.textContent = data.map(function(pos) {
-            const comment = pos.comment ? ` — ${pos.comment}` : '';
-            return `${pos.from.padEnd(10)} ${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}${comment}  (${pos.time})`;
-        }).join('\n');
+        el.innerHTML = data.map(function(pos) {
+            const checked = hiddenMarkers.has(pos.from) ? '' : 'checked';
+            const domId = 'pos-toggle-' + pos.from.replace(/[^A-Za-z0-9]/g, '_');
+            const from = escapeHtml(pos.from);
+            const messageLine = pos.comment
+                ? `<div class="mt-1">${escapeHtml(pos.comment)}</div>`
+                : '<div class="mt-1 text-muted fst-italic">(no message)</div>';
+            return `
+                <li class="list-group-item flex-column align-items-start">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="form-check mb-0">
+                            <input class="form-check-input position-toggle" type="checkbox" data-callsign="${from}" id="${domId}" ${checked}>
+                            <label class="form-check-label" for="${domId}"><strong>${from}</strong></label>
+                        </div>
+                        <small class="text-muted">${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)} (${pos.time})</small>
+                    </div>
+                    ${messageLine}
+                </li>`;
+        }).join('');
     }
 
     function fetchPositions() {
@@ -194,12 +293,16 @@
                 if (markers[pos.from]) {
                     markers[pos.from].setLatLng(latlng);
                 } else {
-                    markers[pos.from] = L.marker(latlng, { icon: stationIcon }).addTo(map);
-                    markers[pos.from].bindTooltip(pos.from, { permanent: true, direction: 'top', offset: [0, -20] });
+                    const icon = aprsSymbolIcon(pos.symbol_table, pos.symbol_code) || stationIcon;
+                    markers[pos.from] = L.marker(latlng, { icon: icon });
+                    markers[pos.from].bindTooltip(escapeHtml(pos.from), { permanent: true, direction: 'top', offset: [0, -16] });
+                    if (!hiddenMarkers.has(pos.from)) {
+                        markers[pos.from].addTo(map);
+                    }
                 }
-                markers[pos.from].bindPopup(`<strong>${pos.from}</strong><br>${pos.comment || ''}<br><small>${pos.time}</small>`);
+                markers[pos.from].bindPopup(`<strong>${escapeHtml(pos.from)}</strong><br>${escapeHtml(pos.comment || '')}<br><small>${pos.time}</small>`);
             });
-            updatePositionsText(data);
+            updatePositionsList(data);
         }).fail(function(xhr, status, error) {
             console.log("Error fetching positions:", error);
         });
@@ -216,11 +319,12 @@
 
             data.forEach(function(entry) {
                 var messageClass = entry.direction === 'in' ? 'from-others' : 'from-me';
+                var whoLine = entry.direction === 'in' ? `From ${escapeHtml(entry.from)}` : `To ${escapeHtml(entry.to)}`;
                 var messageHTML = `
                     <div class="message ${messageClass}">
-                        <div class="text">${entry.msg}</div>
+                        <div class="text">${escapeHtml(entry.msg)}</div>
                         <div class="time">
-                            ${entry.direction === 'in' ? `From ${entry.from}` : `To ${entry.to}`} — ${  entry.time}
+                            ${whoLine} — ${escapeHtml(entry.time)}
                         </div>
                     </div>
                 `;
@@ -233,7 +337,111 @@
         });
     }
 
+    const PREVIEW_SIZE = 40;
+
+    function updateSymbolPreview() {
+        const select = document.getElementById('symbol-select');
+        const preview = document.getElementById('symbol-preview');
+        if (!select || !preview) return;
+        const value = select.value || '/-';
+        const pos = aprsSpritePosition(value[0], value[1]);
+        if (!pos) return;
+        const scale = PREVIEW_SIZE / APRS_SYMBOL_SIZE;
+        preview.style.backgroundImage = `url('${pos.sheet}')`;
+        preview.style.backgroundSize = `${APRS_SHEET_COLS * PREVIEW_SIZE}px ${APRS_SHEET_ROWS * PREVIEW_SIZE}px`;
+        preview.style.backgroundPosition = `-${pos.x * scale}px -${pos.y * scale}px`;
+    }
+
+    function restoreCollapseState(id) {
+        try {
+            if (localStorage.getItem('aprschat_collapsed_' + id) === 'true') {
+                document.getElementById(id).classList.remove('show');
+                document.querySelectorAll(`[data-bs-target="#${id}"]`).forEach(btn => {
+                    btn.classList.add('collapsed');
+                    btn.setAttribute('aria-expanded', 'false');
+                });
+            }
+        } catch (e) {
+            console.log('Could not restore collapse state:', e);
+        }
+    }
+
     $(document).ready(function() {
+        restoreCollapseState('messages-collapse');
+        restoreCollapseState('map-collapse');
+
+        try {
+            const savedSymbol = localStorage.getItem('aprschat_symbol_selection');
+            if (savedSymbol) {
+                document.getElementById('symbol-select').value = savedSymbol;
+            }
+        } catch (e) {
+            console.log('Could not restore symbol selection:', e);
+        }
+        updateSymbolPreview();
+
+        $('#symbol-select').on('change', function() {
+            updateSymbolPreview();
+            try {
+                localStorage.setItem('aprschat_symbol_selection', this.value);
+            } catch (e) {
+                console.log('Could not save symbol selection:', e);
+            }
+        });
+
+        try {
+            const savedLat = localStorage.getItem('aprschat_send_lat');
+            const savedLon = localStorage.getItem('aprschat_send_lon');
+            if (savedLat) document.getElementById('lat').value = savedLat;
+            if (savedLon) document.getElementById('lon').value = savedLon;
+        } catch (e) {
+            console.log('Could not restore lat/lon:', e);
+        }
+
+        $('#lat, #lon').on('input', function() {
+            try {
+                localStorage.setItem('aprschat_send_lat', document.getElementById('lat').value);
+                localStorage.setItem('aprschat_send_lon', document.getElementById('lon').value);
+            } catch (e) {
+                console.log('Could not save lat/lon:', e);
+            }
+        });
+
+        $('#messages-collapse, #map-collapse').on('shown.bs.collapse hidden.bs.collapse', function(e) {
+            try {
+                localStorage.setItem('aprschat_collapsed_' + e.target.id, e.type === 'hidden' ? 'true' : 'false');
+            } catch (err) {
+                console.log('Could not save collapse state:', err);
+            }
+        });
+
+        $(document).on('change', '.position-toggle', function() {
+            const callsign = $(this).data('callsign').toString();
+            const marker = markers[callsign];
+            if (!marker) return;
+            if (this.checked) {
+                hiddenMarkers.delete(callsign);
+                marker.addTo(map);
+            } else {
+                hiddenMarkers.add(callsign);
+                map.removeLayer(marker);
+            }
+            saveHiddenMarkers();
+        });
+
+        $('#my-location-toggle').prop('checked', !hiddenMarkers.has('__my_location__'));
+        $('#my-location-toggle').on('change', function() {
+            if (!myLocationMarker) return;
+            if (this.checked) {
+                hiddenMarkers.delete('__my_location__');
+                myLocationMarker.addTo(map);
+            } else {
+                hiddenMarkers.add('__my_location__');
+                map.removeLayer(myLocationMarker);
+            }
+            saveHiddenMarkers();
+        });
+
         fetchMessages();
 
         if (!fetchInterval) {
@@ -303,8 +511,8 @@
             const btn = $(this);
             btn.prop('disabled', true);
             navigator.geolocation.getCurrentPosition(function(position) {
-                $('#lat').val(position.coords.latitude.toFixed(5));
-                $('#lon').val(position.coords.longitude.toFixed(5));
+                $('#lat').val(position.coords.latitude.toFixed(5)).trigger('input');
+                $('#lon').val(position.coords.longitude.toFixed(5)).trigger('input');
                 showMyLocation(position.coords.latitude, position.coords.longitude);
                 btn.prop('disabled', false);
             }, function(err) {

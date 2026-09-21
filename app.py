@@ -187,11 +187,13 @@ async def get_positions():
 
 
 @app.post('/send_position')
-async def send_position(request: Request, lat: str = Form(...), lon: str = Form(...)):
+async def send_position(request: Request, lat: str = Form(...), lon: str = Form(...), comment: str = Form(''), symbol: str = Form('/-')):
     try:
         lat_f = float(lat)
         lon_f = float(lon)
-        aprs_client.send_position(lat_f, lon_f)
+        symbol_table = symbol[0] if len(symbol) > 0 else '/'
+        symbol_code = symbol[1] if len(symbol) > 1 else '-'
+        aprs_client.send_position(lat_f, lon_f, comment, symbol_table, symbol_code)
         flash(request, f"Position sent: {lat_f}, {lon_f}")
     except ValueError:
         flash(request, "Invalid latitude/longitude.")

@@ -231,6 +231,33 @@ h1 {
     outline: none;
 }
 
+.form-select {
+    background-color: var(--bg-obsidian) !important;
+    border: 1px solid #334155;
+    color: var(--text-ghost) !important;
+    border-radius: 16px !important;
+    padding: 12px 20px;
+}
+
+.form-select:focus {
+    background-color: var(--card-obsidian) !important;
+    border-color: var(--accent-cyan);
+    color: #fff !important;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2);
+    outline: none;
+}
+
+#symbol-preview {
+    display: inline-block;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: var(--bg-obsidian);
+    background-repeat: no-repeat;
+}
+
 .btn-primary {
     background-color: var(--accent-cyan);
     color: #083344;
@@ -322,12 +349,15 @@ h2 {
     background: rgba(15, 23, 42, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 16px;
-    padding: 15px;
     height: 500px;
     overflow-y: auto;
-    font-family: 'Courier New', monospace;
+}
+
+.positions-box .list-group-item {
+    background: transparent !important;
     font-size: 0.85rem;
-    color: var(--text-ghost);
-    white-space: pre-wrap;
-    margin: 0;
+}
+
+.position-toggle {
+    cursor: pointer;
 }
