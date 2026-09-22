@@ -2,3 +2,5 @@ __pycache__/
 venv/
 aprs_messages.log
 aprschat.config
+connection.json
+callsigns.json
