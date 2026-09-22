@@ -9,8 +9,11 @@ python virtual environment. This will install the
 needed python modules locally. 
 
 # CONFIG 
-Edit the aprschat.config file 
-Enter your callsign and aprs passcode 
+aprschat.config holds your callsign and APRS passcode, so it's
+gitignored -- install.sh creates it from aprschat.config.example on
+first run if it doesn't exist yet. Otherwise copy it yourself:
+    cp aprschat.config.example aprschat.config
+Then edit aprschat.config and enter your callsign and aprs passcode.
 This url can be used to get your aprs passcode
 https://apps.magicbug.co.uk/passcode/
 

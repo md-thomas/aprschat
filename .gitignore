@@ -1,3 +1,4 @@
 __pycache__/
 venv/
 aprs_messages.log
+aprschat.config

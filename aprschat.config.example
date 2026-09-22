@@ -1,6 +1,6 @@
 [settings]
-callsign = K0MDT
-passcode = 8598
+callsign = YOUR_CALLSIGN
+passcode = YOUR_APRS_PASSCODE
 # Starting defaults only -- the Map panel's Distance filter toggle and
 # radius field override these live, same pattern as the device pickers
 # above. When enabled, APRS-IS sends us traffic within radius_nm
