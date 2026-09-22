@@ -18,11 +18,14 @@ logging.basicConfig(
 
 class APRSClient:
     # def __init__(self, callsign, password, server='rotate.aprs2.net', port=14580):
-    def __init__(self, callsign, password, server='noam.aprs2.net', port=14580):
+    def __init__(self, callsign, password, server='noam.aprs2.net', port=14580,
+                 radius_nm=60, radius_filter_enabled=True):
         self.callsign = callsign
         self.password = password
         self.server = server
         self.port = port
+        self.radius_nm = radius_nm
+        self.radius_filter_enabled = radius_filter_enabled
         self.socket = None
         self.running = False
         self.received_messages = []
@@ -46,12 +49,34 @@ class APRSClient:
         self.set_filter(watch_callsigns or [])
 
     def set_filter(self, watch_callsigns):
-        """(Re)send the APRS-IS server-side filter to include the given callsigns."""
-        self.watch_list = {self.callsign.upper()} | {c.strip().upper() for c in watch_callsigns if c.strip()}
-        callsigns_csv = ",".join(sorted(self.watch_list))
+        """(Re)send the APRS-IS server-side filter. Two mutually
+        exclusive modes, toggled by radius_filter_enabled:
 
-        # Traffic (messages, positions, etc.) from these callsigns + weather alerts
-        filter_command = f"# filter t/m p/{callsigns_csv} t/w\r\n"
+        - Radius (the 'f' friend filter, centered on our own last
+          reported position -- APRS-IS tracks that itself, no need to
+          know our own coordinates here): shows all nearby traffic,
+          range following us as we move. The RF transports (kiss_tnc.py)
+          work the same way, just range-limited by the radio instead of
+          a distance figure.
+        - Buddy list ('p' prefix filter): shows only traffic from the
+          saved callsigns.
+
+        t/m (messages) is included either way and is unbounded by
+        distance on purpose -- client-side code only keeps ones
+        addressed to us anyway. Deliberately NOT adding t/w (weather):
+        it matches by packet type regardless of source, which would let
+        weather stations' positions through worldwide and defeat the
+        radius filter entirely."""
+        self.watch_list = {self.callsign.upper()} | {c.strip().upper() for c in watch_callsigns if c.strip()}
+        if self.radius_filter_enabled:
+            # radius_nm is nautical miles (the unit hams actually use),
+            # but APRS-IS's own filter syntax takes km -- convert only
+            # here, at the wire boundary.
+            radius_km = round(self.radius_nm * 1.852)
+            filter_command = f"# filter f/{self.callsign}/{radius_km} t/m\r\n"
+        else:
+            callsigns_csv = ",".join(sorted(self.watch_list))
+            filter_command = f"# filter p/{callsigns_csv} t/m\r\n"
         if self.socket:
             self.socket.sendall(filter_command.encode())
 
@@ -132,8 +157,12 @@ class APRSClient:
                                 else:
                                     print(f"[DEDUP] Skipped duplicate message with ID: {msgid}")
                         else:
+                            # No watch-list gating: the server-side radius
+                            # filter (see set_filter) already bounds what
+                            # reaches us, so anything that does is fair
+                            # game to show.
                             pos = self.parse_position(line)
-                            if pos and pos['from'] in self.watch_list:
+                            if pos:
                                 self.positions[pos['from']] = pos
                                 logging.info(f"Position from {pos['from']}: {pos['lat']},{pos['lon']}")
                                 print(f"[POSITION] {pos}")

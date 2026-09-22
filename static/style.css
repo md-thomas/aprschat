@@ -19,6 +19,13 @@ body, html {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* Bootstrap's .text-muted defaults to a light-theme gray (near-black)
+   since this page never sets data-bs-theme="dark" -- override it to
+   match the Obsidian theme instead of falling back to Bootstrap's own. */
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
 .navbar-brand {
     color: var(--accent-cyan) !important;
     font-weight: 800;
@@ -119,7 +126,9 @@ h1 {
 
 .chat-box {
     height: 320px;
+    min-height: 120px;
     overflow-y: auto;
+    resize: vertical;
     background: rgba(15, 23, 42, 0.5);
     padding: 15px;
     border-radius: 16px;
@@ -294,6 +303,26 @@ h2 {
 
 #connection-mode-select {
     padding-right: calc(2.25rem + 10px);
+}
+
+#radius-input-group {
+    padding-right: 0.5rem;
+}
+
+.input-group-text {
+    background: var(--card-obsidian) !important;
+    border: 1px solid #334155;
+    color: var(--text-ghost) !important;
+}
+
+#connection-connect-btn {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+#connection-refresh-btn {
+    font-size: 1.15rem;
+    line-height: 1;
 }
 
 #map {

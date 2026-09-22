@@ -102,10 +102,25 @@
                     </ul>
                     <div class="tab-content pt-3">
                         <div class="tab-pane fade show active" id="map-pane" role="tabpanel">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
                                 <small class="text-muted">Drag the map's bottom-right corner to resize</small>
-                                <div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap ms-auto">
+                                    {% if connection_mode == 'network' %}
+                                    <div class="form-check form-check-inline mb-0">
+                                        <input class="form-check-input" type="checkbox" id="radius-filter-toggle" {{ 'checked' if radius_filter_enabled else '' }}>
+                                        <label class="form-check-label text-muted small" for="radius-filter-toggle" title="On: hear everything within the radius below. Off: only the saved callsigns list.">Distance filter</label>
+                                    </div>
+                                    <form method="post" action="/connection/radius" class="d-flex align-items-center gap-1 m-0">
+                                        <label for="radius-nm-input" class="text-muted small mb-0">Radius</label>
+                                        <div class="input-group input-group-sm" id="radius-input-group" style="width: 7rem">
+                                            <input type="number" min="1" max="1000" class="form-control" id="radius-nm-input" name="radius_nm" value="{{ radius_nm }}" title="How far (nautical miles) around your last position to hear traffic from" {{ 'disabled' if not radius_filter_enabled else '' }}>
+                                            <span class="input-group-text">NM</span>
+                                        </div>
+                                        <button type="submit" class="btn btn-sm btn-outline-light" {{ 'disabled' if not radius_filter_enabled else '' }}>Set</button>
+                                    </form>
+                                    {% endif %}
                                     <button type="button" id="pick-location-btn" class="btn btn-sm btn-outline-light" title="Click a point on the map to set your location">🎯 Pick location</button>
+                                    <button type="button" id="clear-map-btn" class="btn btn-sm btn-outline-danger" title="Remove all station markers from the map">Clear map</button>
                                     <button type="button" id="reset-map-size-btn" class="btn btn-sm btn-link p-0">Reset size</button>
                                 </div>
                             </div>
@@ -160,7 +175,14 @@
 
 <footer>
     <div class="container text-center">
-        Version {{ version }}
+        <div>Version {{ version }}</div>
+        <div class="footer-legal">
+            <a href="/license" target="_blank" rel="noopener">MIT License</a>
+            &middot;
+            Map icons from the <a href="https://github.com/hessu/aprs-symbols" target="_blank" rel="noopener">aprs-symbols</a> project (CC BY-SA 2.0 and others -- see its COPYRIGHT.md)
+            &middot;
+            <a href="https://github.com/md-thomas/aprschat" target="_blank" rel="noopener">Source on GitHub</a>
+        </div>
     </div>
 </footer>
 
@@ -273,6 +295,32 @@
         pickingLocation = on;
         $('#pick-location-btn').toggleClass('btn-outline-light', !on).toggleClass('btn-primary', on);
         $('#map').toggleClass('picking-location', on);
+    }
+
+    function initChatBoxResize() {
+        const chatBox = document.querySelector('.chat-box');
+        if (!chatBox) return;
+
+        try {
+            const savedHeight = localStorage.getItem('aprschat_chatbox_height');
+            if (savedHeight) {
+                chatBox.style.height = savedHeight;
+            }
+        } catch (e) {
+            console.log('Could not read saved chat box height:', e);
+        }
+
+        let resizeSaveTimeout;
+        new ResizeObserver(entries => {
+            clearTimeout(resizeSaveTimeout);
+            resizeSaveTimeout = setTimeout(() => {
+                try {
+                    localStorage.setItem('aprschat_chatbox_height', `${Math.round(entries[0].contentRect.height)}px`);
+                } catch (e) {
+                    console.log('Could not save chat box height:', e);
+                }
+            }, 300);
+        }).observe(chatBox);
     }
 
     function initMap() {
@@ -560,6 +608,20 @@
             saveHiddenMarkers();
         });
 
+        $('#radius-filter-toggle').on('change', function() {
+            const checkbox = $(this);
+            const enabled = this.checked;
+            checkbox.prop('disabled', true);
+            $.post('/connection/radius/toggle', { enabled: enabled }, function() {
+                $('#radius-nm-input').closest('form').find('input, button').prop('disabled', !enabled);
+            }).fail(function() {
+                alert('Could not update the distance filter.');
+                checkbox.prop('checked', !enabled);
+            }).always(function() {
+                checkbox.prop('disabled', false);
+            });
+        });
+
         $('#my-location-toggle').prop('checked', !hiddenMarkers.has('__my_location__'));
         $('#my-location-toggle').on('change', function() {
             if (!myLocationMarker) return;
@@ -618,6 +680,7 @@
             }).always(function() { btn.prop('disabled', false); });
         });
 
+        initChatBoxResize();
         initMap();
         fetchPositions();
         setInterval(fetchPositions, 15000);
@@ -632,6 +695,18 @@
 
         $('#pick-location-btn').on('click', function() {
             setPickingLocation(!pickingLocation);
+        });
+
+        $('#clear-map-btn').on('click', function() {
+            $.post('/clear_positions', function() {
+                Object.keys(markers).forEach(function(callsign) {
+                    map.removeLayer(markers[callsign]);
+                    delete markers[callsign];
+                });
+                updatePositionsList([]);
+            }).fail(function() {
+                alert('Could not clear the map.');
+            });
         });
 
         $('#reset-map-size-btn').on('click', function() {

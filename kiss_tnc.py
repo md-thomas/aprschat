@@ -62,9 +62,11 @@ class KissTNCClient:
         return f"{self.counter:03}"
 
     def set_filter(self, watch_callsigns):
-        """Kept for interface parity with APRSClient -- there's no
-        server-side filter over RF, everything heard is already ours to
-        keep or discard locally by watch_list."""
+        """Kept for interface parity with APRSClient. There's no
+        server-side filter over RF (and, unlike APRS-IS, no need for one
+        -- whatever the radio hears is already range-limited by RF
+        propagation), so watch_list is purely informational here now,
+        not a receive filter."""
         self.watch_list = {self.callsign.upper()} | {c.strip().upper() for c in watch_callsigns if c.strip()}
 
     def connect(self, watch_callsigns=None):
@@ -141,8 +143,11 @@ class KissTNCClient:
                     self.processed_message_ids.add(msgid)
                     logging.info(f"Received message from {msg['from']} via {self.transport_name}: {msg['msg']}")
         else:
+            # No watch-list gating here: whatever the radio actually
+            # receives is already range-limited by RF propagation, so
+            # there's no "firehose" risk the way there is on APRS-IS.
             pos = aprs_packet.parse_position(line)
-            if pos and pos['from'] in self.watch_list:
+            if pos:
                 self.positions[pos['from']] = pos
                 logging.info(f"Position from {pos['from']} via {self.transport_name}: {pos['lat']},{pos['lon']}")
 

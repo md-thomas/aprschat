@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 import uvicorn
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -30,6 +30,8 @@ config = configparser.ConfigParser()
 config.read('aprschat.config')
 CALLSIGN = config['settings']['callsign']
 PASSCODE = config['settings']['passcode']
+CONFIG_RADIUS_NM = int(config.get('settings', 'radius_nm', fallback='60').strip() or 60)
+CONFIG_RADIUS_FILTER_ENABLED = config.getboolean('settings', 'radius_filter_enabled', fallback=True)
 
 # Bluetooth KISS TNC (e.g. Mobilinkd TNC3/TNC4) and USB KISS TNC settings.
 # These are only starting defaults -- the Connection panel lets the user
@@ -88,6 +90,10 @@ def load_connection_state():
         'bluetooth_address': data.get('bluetooth_address', ''),
         'usb_port': data.get('usb_port', ''),
         'uvpro_address': data.get('uvpro_address', ''),
+        'radius_nm': data.get('radius_nm', ''),
+        # None (not just falsy), since False is a valid saved value and
+        # must not fall back to the config default like '' or 0 would.
+        'radius_filter_enabled': data.get('radius_filter_enabled', None),
     }
 
 
@@ -98,6 +104,8 @@ def save_connection_state():
             'bluetooth_address': bt_client.address,
             'usb_port': usb_client.port,
             'uvpro_address': uvpro_client.address,
+            'radius_nm': aprs_client.radius_nm,
+            'radius_filter_enabled': aprs_client.radius_filter_enabled,
         }, f, indent=2)
 
 
@@ -106,8 +114,12 @@ CONNECTION_MODE = _state['mode']
 BT_ADDRESS = _state['bluetooth_address'] or CONFIG_BT_ADDRESS
 USB_PORT = _state['usb_port'] or CONFIG_USB_PORT
 UVPRO_ADDRESS = _state['uvpro_address'] or CONFIG_UVPRO_ADDRESS
+RADIUS_NM = _state['radius_nm'] or CONFIG_RADIUS_NM
+RADIUS_FILTER_ENABLED = _state['radius_filter_enabled']
+if RADIUS_FILTER_ENABLED is None:
+    RADIUS_FILTER_ENABLED = CONFIG_RADIUS_FILTER_ENABLED
 
-aprs_client = APRSClient(CALLSIGN, PASSCODE)
+aprs_client = APRSClient(CALLSIGN, PASSCODE, radius_nm=RADIUS_NM, radius_filter_enabled=RADIUS_FILTER_ENABLED)
 aprs_client.connect(CALLSIGNS)
 aprs_client.listen_for_messages()
 
@@ -210,6 +222,8 @@ async def index(request: Request, to_callsign: str = ''):
             'messages': get_flashed_messages(request),
             'connection_mode': CONNECTION_MODE,
             'connection_connected': is_connected(CONNECTION_MODE),
+            'radius_nm': aprs_client.radius_nm,
+            'radius_filter_enabled': aprs_client.radius_filter_enabled,
         },
     )
 
@@ -309,6 +323,22 @@ async def set_connection_mode(mode: str = Form(...)):
         CONNECTION_MODE = mode
         save_connection_state()
     return RedirectResponse(url='/', status_code=303)
+
+
+@app.post('/connection/radius')
+async def set_radius(radius_nm: int = Form(...)):
+    aprs_client.radius_nm = max(1, radius_nm)
+    aprs_client.set_filter(CALLSIGNS)  # resend the filter with the new radius
+    save_connection_state()
+    return RedirectResponse(url='/', status_code=303)
+
+
+@app.post('/connection/radius/toggle')
+async def toggle_radius_filter(enabled: bool = Form(...)):
+    aprs_client.radius_filter_enabled = enabled
+    aprs_client.set_filter(CALLSIGNS)  # resend the filter in the new mode
+    save_connection_state()
+    return {'radius_filter_enabled': aprs_client.radius_filter_enabled}
 
 
 @app.get('/connection/status')
@@ -418,6 +448,19 @@ async def clear_messages():
     message_history.clear()
     get_active_client().received_messages.clear()
     return {"status": "success", "message": "Message buffer cleared."}
+
+
+@app.post('/clear_positions')
+async def clear_positions():
+    # Clear the position buffer -- otherwise it just repopulates from the
+    # active client's stored positions on the next poll.
+    get_active_client().positions.clear()
+    return {"status": "success", "message": "Position buffer cleared."}
+
+
+@app.get('/license')
+async def license_page():
+    return PlainTextResponse(Path('LICENSE').read_text())
 
 
 def main():
