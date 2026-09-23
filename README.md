@@ -125,18 +125,26 @@ The application runs on port 5001 by default. Use -p to pick a
 different port, e.g. ./start.sh -p 8080
 
 # RUN AS A SYSTEMD SERVICE
-A sample unit file, aprschat.service, is included so the app can be
-managed with systemctl and start automatically on boot, instead of
-running it by hand with ./start.sh.
+Two sample unit files are included so the app can be managed with
+systemctl and start automatically on boot, instead of running it by
+hand with ./start.sh:
 
-It assumes the repo lives at /home/mdthomas/Projects/aprschat and runs
-as the mdthomas user -- edit User/Group/WorkingDirectory/ExecStart in
-the file first if either is different for your setup. It also assumes
-the venv from `./install.sh` already exists at ./venv.
+- aprschat.service -- a regular Linux box, assumes the repo lives at
+  /home/mdthomas/Projects/aprschat under the mdthomas user.
+- aprschat-pi.service -- a Raspberry Pi, assumes the repo lives at
+  /home/pi/aprschat under the default pi user.
 
-Install and enable it:
+Neither will match your setup exactly if it differs from those
+assumptions -- edit User/Group/WorkingDirectory/ExecStart in whichever
+file you use first. Both assume the venv from `./install.sh` already
+exists at ./venv.
 
-    sudo cp aprschat.service /etc/systemd/system/
+Install and enable one of them, renaming it to aprschat.service in
+/etc/systemd/system/ either way so the systemctl commands below are the
+same regardless of which one you used (on a Pi, substitute
+aprschat-pi.service as the source file):
+
+    sudo cp aprschat.service /etc/systemd/system/aprschat.service
     sudo systemctl daemon-reload
     sudo systemctl enable --now aprschat
 
