@@ -120,8 +120,15 @@ if RADIUS_FILTER_ENABLED is None:
     RADIUS_FILTER_ENABLED = CONFIG_RADIUS_FILTER_ENABLED
 
 aprs_client = APRSClient(CALLSIGN, PASSCODE, radius_nm=RADIUS_NM, radius_filter_enabled=RADIUS_FILTER_ENABLED)
-aprs_client.connect(CALLSIGNS)
-aprs_client.listen_for_messages()
+try:
+    aprs_client.connect(CALLSIGNS)
+    aprs_client.listen_for_messages()
+except Exception as e:
+    # No network at startup shouldn't take down the whole app -- Bluetooth/
+    # USB/UV-Pro modes need to work even with APRS-IS unreachable. is_connected('network')
+    # already reports False whenever aprs_client.socket is None, so nothing
+    # downstream needs to know why the connection failed.
+    print(f"APRS-IS not available at startup: {e}")
 
 bt_client = BluetoothTNCClient(CALLSIGN, BT_ADDRESS, BT_CHANNEL, DIGIPATH)
 usb_client = SerialTNCClient(CALLSIGN, USB_PORT, USB_BAUDRATE, DIGIPATH)
@@ -347,6 +354,23 @@ async def connection_status():
         'mode': CONNECTION_MODE,
         'connected': is_connected(CONNECTION_MODE),
     }
+
+
+@app.post('/connection/network/connect')
+async def network_connect():
+    aprs_client.close()  # drop any stale socket/listener thread first
+    try:
+        aprs_client.connect(CALLSIGNS)
+        aprs_client.listen_for_messages()
+        return {'connected': True}
+    except Exception as e:
+        return {'connected': False, 'error': str(e)}
+
+
+@app.post('/connection/network/disconnect')
+async def network_disconnect():
+    aprs_client.close()
+    return {'connected': False}
 
 
 @app.get('/connection/bluetooth/devices')

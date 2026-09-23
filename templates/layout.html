@@ -71,8 +71,8 @@
                             <option value="">Loading devices…</option>
                         </select>
                         <button type="button" class="btn btn-sm btn-outline-light" id="connection-refresh-btn" title="Refresh device list">🔄</button>
-                        <button type="button" class="btn btn-sm btn-primary" id="connection-connect-btn">Connect</button>
                         {% endif %}
+                        <button type="button" class="btn btn-sm btn-primary" id="connection-connect-btn">Connect</button>
 
                         <span id="connection-status-badge" class="badge {{ 'bg-success' if connection_connected else 'bg-danger' }}">{{ 'Connected' if connection_connected else 'Disconnected' }}</span>
                     </div>
@@ -662,14 +662,15 @@
                 return;
             }
 
-            if (!deviceValue) {
+            if (connectionMode !== 'network' && !deviceValue) {
                 alert('Pick a device first.');
                 btn.prop('disabled', false);
                 return;
             }
 
             const field = connectionMode === 'usb' ? 'port' : 'address';
-            $.post(`/connection/${connectionMode}/connect`, { [field]: deviceValue }, function(data) {
+            const payload = connectionMode === 'network' ? {} : { [field]: deviceValue };
+            $.post(`/connection/${connectionMode}/connect`, payload, function(data) {
                 connectionConnected = !!(data && data.connected);
                 updateConnectionUI();
                 if (!connectionConnected && data && data.error) {
