@@ -14,7 +14,9 @@ PENDING_SOCKETS for benlink's RfcommClient to reuse directly, instead of
 closing it here.
 """
 
+import errno
 import socket
+import time
 
 import uvpro_patches  # noqa: F401 (applies protocol compatibility patches on import)
 from benlink import protocol as p
@@ -22,6 +24,11 @@ from benlink.command import GetDeviceInfo, command_message_to_protocol
 
 CHANNEL_PROBE_RANGE = range(1, 9)
 PROBE_TIMEOUT_SECONDS = 3.0
+# The first connect after the baseband link has been idle often fails
+# with EHOSTDOWN (page timeout) even though the radio is on and in range.
+# That says nothing about the channel, so retry it rather than moving on.
+HOST_DOWN_RETRIES = 2
+HOST_DOWN_RETRY_DELAY_SECONDS = 2.0
 
 
 def _build_gaia_get_device_info() -> bytes:
@@ -35,18 +42,27 @@ def _build_gaia_get_device_info() -> bytes:
 
 
 def _try_channel(addr: str, channel: int):
-    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-    s.settimeout(PROBE_TIMEOUT_SECONDS)
-    try:
-        s.connect((addr, channel))
-        s.send(_build_gaia_get_device_info())
-        reply = s.recv(1024)
-        if len(reply) > 0 and reply[0] == 0xFF:
-            return s
-    except OSError:
-        pass
-    s.close()
-    return None
+    for attempt in range(HOST_DOWN_RETRIES + 1):
+        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+        s.settimeout(PROBE_TIMEOUT_SECONDS)
+        try:
+            s.connect((addr, channel))
+            s.send(_build_gaia_get_device_info())
+            reply = s.recv(1024)
+            if len(reply) > 0 and reply[0] == 0xFF:
+                return s
+        except OSError as e:
+            if e.errno == errno.EHOSTDOWN:
+                s.close()
+                if attempt < HOST_DOWN_RETRIES:
+                    time.sleep(HOST_DOWN_RETRY_DELAY_SECONDS)
+                    continue
+                raise ConnectionError(
+                    f"Radio {addr} is not reachable (host down). Is it on, "
+                    "in range, and paired?"
+                ) from e
+        s.close()
+        return None
 
 
 def discover_command_channel(addr: str) -> int:

@@ -52,6 +52,10 @@ class _RadioHandle:
         self.radio = None
         self.inbox = queue.Queue()
         self.close_event = None  # created on the loop thread, in connect()
+        # Set by _open when it gives up waiting, so a connect attempt
+        # that finishes late releases the radio instead of holding its
+        # only command connection with nobody using it.
+        self.abandoned = threading.Event()
 
 
 async def _connect_and_serve(address, handle, ready):
@@ -59,6 +63,12 @@ async def _connect_and_serve(address, handle, ready):
         channel = discover_command_channel(address)
     except Exception as e:
         ready.put(e)
+        return
+
+    if handle.abandoned.is_set():
+        sock = uvpro_patches.PENDING_SOCKETS.pop((address, channel), None)
+        if sock is not None:
+            sock.close()
         return
 
     try:
@@ -91,6 +101,8 @@ async def _connect_and_serve(address, handle, ready):
             # send forever waiting for a reply that will never come.
             listen_task = radio._conn._link._client._st.listen_task
 
+            if handle.abandoned.is_set():
+                return
             ready.put(handle)
 
             done, _ = await asyncio.wait(
@@ -120,6 +132,11 @@ async def _send(radio, payload: bytes) -> None:
         )
 
 
+def _cancel_all_tasks(loop):
+    for task in asyncio.all_tasks(loop):
+        task.cancel()
+
+
 class UvProTNCClient(KissTNCClient):
     transport_name = "UV-Pro"
 
@@ -139,13 +156,27 @@ class UvProTNCClient(KissTNCClient):
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(_connect_and_serve(self.address, handle, ready))
+            except asyncio.CancelledError:
+                pass  # _open gave up waiting and cancelled this attempt
             finally:
                 loop.close()
 
         thread = threading.Thread(target=run_loop, daemon=True)
         thread.start()
 
-        result = ready.get(timeout=OPEN_TIMEOUT_SECONDS)
+        try:
+            result = ready.get(timeout=OPEN_TIMEOUT_SECONDS)
+        except queue.Empty:
+            handle.abandoned.set()
+            try:
+                loop.call_soon_threadsafe(_cancel_all_tasks, loop)
+            except RuntimeError:
+                pass  # the loop already finished and closed on its own
+            raise ConnectionError(
+                f"Timed out after {OPEN_TIMEOUT_SECONDS}s waiting for the radio. "
+                "It refuses new connections for a while after one closes -- "
+                "wait about 30 seconds and try again."
+            ) from None
         if isinstance(result, Exception):
             raise result
         return handle
