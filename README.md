@@ -113,6 +113,17 @@ NOTES.md for the full debugging history):
   own settings are still at the factory 0/0, since 0ms risks clipping
   the start of every transmitted packet.
 
+# Bluetooth Issues 
+sudo rfkill unblock bluetooth
+sudo rfkill list
+# Restart the BlueZ service
+sudo systemctl restart bluetooth
+# Reset the Bluetooth driver module (e.g., btusb for USB/PCLi cards)
+sudo modprobe -r btusb
+sudo modprobe btusb
+# Restart the BlueZ service
+sudo systemctl restart bluetooth
+
 # STARTUP
 ./start.sh will kick off the FastAPI backend server (via uvicorn)
 that listens for messages being send and received on
